@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Deliberately plain. RemoteViews supports a small subset of widgets and no
+  custom drawing, so the widget states three numbers and gets out of the way.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@drawable/widget_background"
+    android:padding="16dp">
+
+    <TextView
+        android:id="@+id/widget_blocked"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:textColor="#9A9AA0"
+        android:textSize="12sp" />
+
+    <TextView
+        android:id="@+id/widget_screen_time"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:textColor="#FFFFFF"
+        android:textSize="26sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/widget_screen_time"
+        android:textColor="#9A9AA0"
+        android:textSize="11sp" />
+
+    <TextView
+        android:id="@+id/widget_focus"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:textColor="#32D74B"
+        android:textSize="16sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/widget_focused"
+        android:textColor="#9A9AA0"
+        android:textSize="11sp" />
+</LinearLayout>

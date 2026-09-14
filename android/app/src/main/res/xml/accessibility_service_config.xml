@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Only window-state changes are requested: the service is woken on app
+  switches, not on every text change in every app.
+
+  Window content retrieval is on because hard mode has to tell an attempt to
+  uninstall Control apart from any other settings screen, which means reading
+  the text on it. That reading happens only while hard mode is on and only on
+  the handful of settings and package-installer packages; nothing is stored and
+  nothing leaves the device.
+-->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:accessibilityEventTypes="typeWindowStateChanged|typeWindowsChanged"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:canRetrieveWindowContent="true"
+    android:notificationTimeout="100"
+    android:description="@string/accessibility_description"
+    android:summary="@string/accessibility_summary" />

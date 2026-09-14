@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  No policies are declared. Device admin is held purely so Android refuses to
+  uninstall the app while it is active; nothing here wipes, locks, or reads the
+  device, and asking for powers that are not used would be both a privacy
+  problem and an install-time deterrent.
+-->
+<device-admin xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-policies />
+</device-admin>

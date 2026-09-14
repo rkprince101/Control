@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="accessibility_summary">Detects which app is in the foreground so blocks can be enforced.</string>
+    <string name="accessibility_description">Control needs this to see which app you just opened, so it can put a block screen in front of it. With Hard mode on it also reads the text of Android settings screens, and only those, to notice an attempt to uninstall Control. It never reads other apps, never records what you type, and nothing leaves your device. Without it, blocks cannot be enforced on Android.</string>
+
+    <string name="block_fallback_title">Blocked</string>
+    <string name="block_default_reason">This app is blocked right now.</string>
+    <string name="block_go_home">Back to home</string>
+    <string name="block_by">Blocked by %1$s</string>
+    <string name="block_progress">%1$d%% of the way there</string>
+    <string name="block_countdown">Unlocks in %1$s</string>
+    <string name="block_unlocking">Unlocking now</string>
+    <string name="block_web_reason">%1$s is blocked right now, in the app and in the browser.</string>
+
+    <string name="shortcut_fired">%1$s logged (%2$d today)</string>
+
+    <string name="device_admin_explanation">Stops Control being uninstalled while your blocks are locked.</string>
+    <string name="device_admin_disable_warning">Turning this off lets you uninstall Control, which removes every block you have set. If you are here because you want one app back, that is the craving talking.</string>
+
+    <string name="app_name">Control</string>
+    <string name="tile_nothing_blocked">Nothing blocked</string>
+    <plurals name="tile_blocked">
+        <item quantity="one">%1$d app blocked</item>
+        <item quantity="other">%1$d apps blocked</item>
+    </plurals>
+
+    <string name="widget_screen_time">screen time today</string>
+    <string name="widget_focused">focused today</string>
+    <string name="widget_nothing_blocked">Nothing blocked</string>
+    <string name="widget_description">Screen time, focus and blocks for today.</string>
+
+    <string name="weekly_channel">Weekly report</string>
+    <string name="weekly_channel_body">A summary of your week, once a week.</string>
+    <string name="weekly_title">Your week in Control</string>
+</resources>

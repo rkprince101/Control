@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Legacy launcher icon for Android 7, which predates adaptive icons.
+
+  Without this, API 24 and 25 fall back to the density PNGs, which are still the
+  ones from the Flutter template. The v26 folder takes precedence on newer
+  releases, so this is only ever used on Android 7.
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="@color/ic_launcher_background" />
+            <corners android:radius="8dp" />
+        </shape>
+    </item>
+    <item android:drawable="@drawable/ic_launcher_foreground" />
+</layer-list>

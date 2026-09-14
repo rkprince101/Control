@@ -1,0 +1,240 @@
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:control_core/control_core.dart';
+import 'package:flutter/foundation.dart';
+import 'package:path_provider/path_provider.dart';
+
+import 'block_codec.dart';
+import 'focus.dart';
+
+/// Local persistence for everything a restart must not reset.
+///
+/// A single JSON file rather than key-value preferences, written atomically:
+/// blocks, locks, grants, and the emergency-unlock budget are one consistent
+/// state, and a half-written update that loses the lock while keeping the block
+/// is worse than no update at all. The file is also readable with `adb`, which
+/// matters when the bug being chased is "my rules vanished".
+class LocalStore {
+  LocalStore._(this._file, this._state);
+
+  static const _fileName = 'control_state.json';
+
+  /// [directory] is injectable so tests can use a temp folder instead of the
+  /// platform application-support path.
+  static Future<LocalStore> open({Directory? directory}) async {
+    final dir = directory ?? await getApplicationSupportDirectory();
+    final file = File('${dir.path}${Platform.pathSeparator}$_fileName');
+    return LocalStore._(file, await _read(file));
+  }
+
+  final File _file;
+  final Map<String, Object?> _state;
+
+  /// Serialises writes. Two saves landing at once must not interleave into a
+  /// file that is neither.
+  Future<void> _writing = Future.value();
+
+  static Future<Map<String, Object?>> _read(File file) async {
+    try {
+      if (!file.existsSync()) return {};
+      final raw = await file.readAsString();
+      if (raw.trim().isEmpty) return {};
+      final decoded = jsonDecode(raw);
+      return decoded is Map<String, Object?> ? decoded : {};
+    } catch (error) {
+      // Never let unreadable storage take the app down: an empty state still
+      // starts, and the next save rewrites the file.
+      debugPrint('control: could not read $_fileName: $error');
+      return {};
+    }
+  }
+
+  Future<void> _save() {
+    final snapshot = jsonEncode(_state);
+    _writing = _writing.then((_) async {
+      try {
+        await _file.parent.create(recursive: true);
+        // Write beside the target, then rename: a rename is atomic, so a crash
+        // mid-write leaves the previous good file rather than a truncated one.
+        final temp = File('${_file.path}.tmp');
+        await temp.writeAsString(snapshot, flush: true);
+        await temp.rename(_file.path);
+      } catch (error) {
+        debugPrint('control: could not write $_fileName: $error');
+      }
+    });
+    return _writing;
+  }
+
+  /// Waits for any in-flight write. Used before reading the file back.
+  Future<void> flush() => _writing;
+
+  // Blocks -------------------------------------------------------------------
+
+  List<Block> loadBlocks() {
+    final raw = _state[_blocks];
+    if (raw is! List) return [];
+
+    return raw
+        .whereType<Map<String, Object?>>()
+        .map((json) {
+          // One unreadable block must not take the rest of the rules with it.
+          try {
+            return BlockCodec.decode(json);
+          } catch (error) {
+            debugPrint('control: dropping unreadable block: $error');
+            return null;
+          }
+        })
+        .whereType<Block>()
+        .toList();
+  }
+
+  Future<void> saveBlocks(List<Block> blocks) {
+    _state[_blocks] = blocks.map(BlockCodec.encode).toList();
+    return _save();
+  }
+
+  // Unlock grants ------------------------------------------------------------
+
+  Map<String, UnlockGrant> loadGrants() {
+    final raw = _state[_grants];
+    if (raw is! Map) return {};
+
+    return {
+      for (final entry in raw.entries)
+        if (entry.key is String && entry.value is Map<String, Object?>)
+          entry.key! as String:
+              _decodeGrant(entry.value! as Map<String, Object?>),
+    };
+  }
+
+  Future<void> saveGrants(Map<String, UnlockGrant> grants) {
+    _state[_grants] = {
+      for (final entry in grants.entries)
+        entry.key: {
+          'grantedAt': entry.value.grantedAt.millisecondsSinceEpoch,
+          'expiresAt': entry.value.expiresAt?.millisecondsSinceEpoch,
+        },
+    };
+    return _save();
+  }
+
+  static UnlockGrant _decodeGrant(Map<String, Object?> json) {
+    final expiresAt = (json['expiresAt'] as num?)?.toInt();
+    return UnlockGrant(
+      grantedAt: DateTime.fromMillisecondsSinceEpoch(
+        (json['grantedAt'] as num?)?.toInt() ?? 0,
+      ),
+      expiresAt: expiresAt == null
+          ? null
+          : DateTime.fromMillisecondsSinceEpoch(expiresAt),
+    );
+  }
+
+  // Focus sessions -----------------------------------------------------------
+
+  List<FocusSession> loadFocusSessions() {
+    final raw = _state[_focusSessions];
+    if (raw is! List) return [];
+    return raw
+        .whereType<Map<String, Object?>>()
+        .map(FocusSession.fromMap)
+        .whereType<FocusSession>()
+        .toList();
+  }
+
+  /// Keeps a rolling window. Statistics never look further back than a few
+  /// months, and an unbounded list would grow the file forever.
+  Future<void> saveFocusSessions(List<FocusSession> sessions, DateTime now) {
+    final cutoff = now.subtract(const Duration(days: 120));
+    _state[_focusSessions] = sessions
+        .where((session) => session.isRunning || session.startedAt.isAfter(cutoff))
+        .map((session) => session.toMap())
+        .toList();
+    return _save();
+  }
+
+  // Place check-ins ----------------------------------------------------------
+
+  /// Ids checked in on [day]. Stored with the day they belong to, so a check-in
+  /// earned yesterday morning does not still be counting tomorrow.
+  Set<String> loadPlaceCheckIns(DateTime day) {
+    if (_state[_checkInDay] != _dayKey(day)) return {};
+    final raw = _state[_checkIns];
+    return raw is List ? raw.whereType<String>().toSet() : <String>{};
+  }
+
+  Future<void> savePlaceCheckIns(Set<String> ids, DateTime day) {
+    _state[_checkInDay] = _dayKey(day);
+    _state[_checkIns] = ids.toList();
+    return _save();
+  }
+
+  static int _dayKey(DateTime day) =>
+      day.year * 10000 + day.month * 100 + day.day;
+
+  // Hard mode ----------------------------------------------------------------
+
+  bool loadHardMode() => _state[_hardMode] as bool? ?? false;
+
+  Future<void> saveHardMode(bool enabled) {
+    _state[_hardMode] = enabled;
+    return _save();
+  }
+
+  /// The lock guarding uninstall protection itself.
+  Lock loadProtectionLock() => LockCodec.decode(_state[_protectionLock]);
+
+  Future<void> saveProtectionLock(Lock lock) {
+    _state[_protectionLock] = LockCodec.encode(lock);
+    return _save();
+  }
+
+  // Emergency unlocks --------------------------------------------------------
+
+  EmergencyUnlocks loadEmergencyUnlocks() => EmergencyUnlocks(
+        remaining: (_state[_emergencyRemaining] as num?)?.toInt() ??
+            EmergencyUnlocks.defaultTotal,
+        total: EmergencyUnlocks.defaultTotal,
+      );
+
+  Future<void> saveEmergencyUnlocks(EmergencyUnlocks pool) {
+    _state[_emergencyRemaining] = pool.remaining;
+    return _save();
+  }
+
+  // Clock --------------------------------------------------------------------
+
+  DateTime? loadClockHighWaterMark() {
+    final millis = (_state[_clockHighWater] as num?)?.toInt();
+    return millis == null ? null : DateTime.fromMillisecondsSinceEpoch(millis);
+  }
+
+  /// Held in memory and flushed with the next real save. Called on every clock
+  /// read, and rewriting the whole file that often would be pointless churn.
+  void noteClockHighWaterMark(DateTime value) {
+    _state[_clockHighWater] = value.millisecondsSinceEpoch;
+  }
+
+  // Preferences --------------------------------------------------------------
+
+  String? loadThemeChoice() => _state[_theme] as String?;
+
+  Future<void> saveThemeChoice(String choice) {
+    _state[_theme] = choice;
+    return _save();
+  }
+
+  static const _blocks = 'blocks';
+  static const _grants = 'grants';
+  static const _emergencyRemaining = 'emergencyUnlocksRemaining';
+  static const _clockHighWater = 'clockHighWaterMark';
+  static const _theme = 'themeChoice';
+  static const _focusSessions = 'focusSessions';
+  static const _hardMode = 'hardMode';
+  static const _checkIns = 'placeCheckIns';
+  static const _checkInDay = 'placeCheckInDay';
+  static const _protectionLock = 'protectionLock';
+}
