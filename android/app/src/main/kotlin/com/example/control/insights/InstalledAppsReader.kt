@@ -13,11 +13,13 @@ data class InstalledApp(
     val packageName: String,
     val label: String,
     val isSystem: Boolean,
+    val categories: List<String> = emptyList(),
 ) {
     fun toMap(): Map<String, Any?> = mapOf(
         "package" to packageName,
         "label" to label,
         "isSystem" to isSystem,
+        "categories" to categories,
     )
 }
 
@@ -29,8 +31,9 @@ data class InstalledApp(
  * Play grants only for a narrow set of use cases and reviews harshly.
  */
 class InstalledAppsReader(private val context: Context) {
+    private val categories = AppCategoryResolver(context)
 
-    fun launchable(): List<InstalledApp> {
+    fun launchable(includeCategories: Boolean = true): List<InstalledApp> {
         val manager = context.packageManager
         val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
 
@@ -44,6 +47,7 @@ class InstalledAppsReader(private val context: Context) {
                     packageName = it.packageName,
                     label = manager.getApplicationLabel(it).toString(),
                     isSystem = it.flags and ApplicationInfo.FLAG_SYSTEM != 0,
+                    categories = if (includeCategories) categories.categories(it.packageName).toList() else emptyList(),
                 )
             }
             .sortedBy { it.label.lowercase() }
@@ -58,7 +62,7 @@ class InstalledAppsReader(private val context: Context) {
      * you are reading makes the numbers look wrong for no reason.
      */
     fun visibleForUsage(): Map<String, String> {
-        val apps = launchable().associate { it.packageName to it.label }
+        val apps = launchable(includeCategories = false).associate { it.packageName to it.label }
         val self = runCatching {
             val info = context.packageManager.getApplicationInfo(context.packageName, 0)
             context.packageName to

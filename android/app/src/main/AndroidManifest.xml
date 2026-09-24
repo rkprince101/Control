@@ -13,6 +13,13 @@
 
     <!-- The weekly report notification. Asked for at runtime on Android 13+. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- The running focus timer holds its notification in the foreground, so
+         the end of a session is announced on time with the app closed. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <!-- Optional, granted by the user in Settings: reminders and the timer's
+         end on the minute. Without it they fall back to a short window. -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
 
     <!-- Re-arm blocks after a reboot; without it a restart is a free bypass. -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
@@ -66,6 +73,7 @@
              app cannot be reached by swiping back to it. -->
         <activity
             android:name=".enforcement.BlockOverlayActivity"
+            android:directBootAware="true"
             android:exported="false"
             android:launchMode="singleTask"
             android:taskAffinity=".enforcement.block"
@@ -115,6 +123,37 @@
             android:name=".surface.WeeklyReportReceiver"
             android:exported="false" />
 
+        <!-- Habit reminder alarms. -->
+        <receiver
+            android:name=".surface.HabitReminderReceiver"
+            android:exported="false" />
+
+        <!-- The focus timer: a foreground service while a session or break
+             counts, and a backup alarm for its end. -->
+        <service
+            android:name=".surface.FocusTimerService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="A focus timer the user starts; it shows the running clock and announces the end of the session or break." />
+        </service>
+        <receiver
+            android:name=".surface.FocusTimerReceiver"
+            android:exported="false" />
+
+        <!-- Re-arms reminders and the weekly report when the wall clock, the
+             time zone, or the right to exact alarms changes. -->
+        <receiver
+            android:name=".surface.AlarmRestoreReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+                <action android:name="android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED" />
+            </intent-filter>
+        </receiver>
+
         <!-- Quick Settings tile. Read-only: a tile that could unblock would be
              a bypass reachable from the lock screen. -->
         <service
@@ -128,14 +167,27 @@
             </intent-filter>
         </service>
 
-        <!-- Re-asserts the cached plan after a restart or an app update. -->
+        <!-- Restores native enforcement inputs before and after first unlock. -->
         <receiver
             android:name=".enforcement.BootReceiver"
             android:exported="true"
-            android:directBootAware="false">
+            android:directBootAware="true">
             <intent-filter>
+                <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
+            android:name=".insights.PackageChangeReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.PACKAGE_ADDED" />
+                <action android:name="android.intent.action.PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.PACKAGE_REMOVED" />
+                <action android:name="android.intent.action.PACKAGE_CHANGED" />
+                <data android:scheme="package" />
             </intent-filter>
         </receiver>
 
@@ -156,6 +208,7 @@
              that is fast enough to block on. -->
         <service
             android:name=".enforcement.ControlAccessibilityService"
+            android:directBootAware="true"
             android:exported="false"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
             <intent-filter>
@@ -187,6 +240,34 @@
         <intent>
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="http" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="https" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.APP_BROWSER" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.HOME" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.DIAL" />
+            <data android:scheme="tel" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.EMERGENCY_DIAL" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.MANAGE_PERMISSIONS" />
         </intent>
     </queries>
 </manifest>

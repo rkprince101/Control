@@ -44,6 +44,11 @@ class AppIcon extends StatelessWidget {
                   width: size,
                   height: size,
                   color: colors.cardRaised,
+                  child: Icon(
+                    Icons.apps_rounded,
+                    size: size * 0.55,
+                    color: colors.textMuted,
+                  ),
                 )
               : Image.memory(
                   bytes,

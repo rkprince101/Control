@@ -10,6 +10,7 @@ import android.os.Bundle
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.UserManager
 import android.window.OnBackInvokedDispatcher
 import android.util.TypedValue
 import android.view.Gravity
@@ -18,8 +19,10 @@ import android.widget.Button
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
+import android.widget.ScrollView
 import android.widget.TextView
 import com.example.control.R
+import com.example.control.insights.AppCategoryResolver
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 
@@ -41,10 +44,15 @@ class BlockOverlayActivity : Activity() {
     private val handler = Handler(Looper.getMainLooper())
     private var countdown: TextView? = null
     private var unlockAt = 0L
+    private val planStore by lazy { PlanStore(this) }
+    private val categories by lazy { AppCategoryResolver(this) }
+    private var blockedPackage = ""
+    private var detailKey = ""
+    private var currentDetail: BlockDetail? = null
 
     private val tick = object : Runnable {
         override fun run() {
-            if (!renderCountdown()) return
+            if (!refreshBlock()) return
             handler.postDelayed(this, 1000L)
         }
     }
@@ -52,14 +60,10 @@ class BlockOverlayActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        val blocked = intent.getStringExtra(EXTRA_PACKAGE).orEmpty()
-        val detail = PlanStore(this).read().detailFor(
-            intent.getStringExtra(EXTRA_DETAIL_KEY) ?: blocked,
-        )
-        unlockAt = detail.unlockAt
-
-        setContentView(buildLayout(blocked, detail))
-        if (unlockAt > 0) handler.post(tick)
+        blockedPackage = intent.getStringExtra(EXTRA_PACKAGE).orEmpty()
+        detailKey = intent.getStringExtra(EXTRA_DETAIL_KEY) ?: blockedPackage
+        if (!refreshBlock()) return
+        handler.postDelayed(tick, 1000L)
 
         // Android 13 introduced predictive back, and onBackPressed stops being
         // called once an app opts in. Registering here keeps back behaving like
@@ -76,6 +80,40 @@ class BlockOverlayActivity : Activity() {
         super.onDestroy()
     }
 
+    private fun refreshBlock(): Boolean {
+        if (getSystemService(UserManager::class.java)?.isUserUnlocked != true &&
+            !categories.canBlockBeforeUnlock(blockedPackage)) {
+            finish()
+            return false
+        }
+        val plan = planStore.read()
+        val now = EnforcementClock.now(this)
+        val tokens = if (plan.rules?.any { it.categories.isNotEmpty() } == true) {
+            categories.categories(blockedPackage)
+        } else emptySet()
+        val appBlocked = plan.blocks(blockedPackage, tokens, now)
+        val domain = if (detailKey != blockedPackage) {
+            WebRules.matches(detailKey, plan.effectiveDomains(now))
+        } else null
+        if (!appBlocked && domain == null) {
+            finish()
+            return false
+        }
+        val detail = plan.detailFor(
+            if (appBlocked) blockedPackage else domain!!,
+            if (appBlocked) tokens else emptySet(),
+            now,
+        )
+        if (detail != currentDetail) {
+            currentDetail = detail
+            unlockAt = detail.unlockAt
+            countdown = null
+            setContentView(buildLayout(blockedPackage, detail))
+        }
+        renderCountdown(now)
+        return true
+    }
+
     private fun buildLayout(blockedPackage: String, detail: BlockDetail): ViewGroup {
         val density = resources.displayMetrics.density
         fun dp(value: Int) = (value * density).toInt()
@@ -84,15 +122,15 @@ class BlockOverlayActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
             setBackgroundColor(BACKGROUND)
-            setPadding(dp(28), dp(28), dp(28), dp(28))
+            setPadding(dp(20), dp(24), dp(20), dp(24))
         }
 
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(dp(24), dp(28), dp(24), dp(24))
+            setPadding(dp(20), dp(28), dp(20), dp(24))
             background = GradientDrawable().apply {
-                cornerRadius = dp(26).toFloat()
+                cornerRadius = dp(32).toFloat()
                 setColor(CARD)
             }
             layoutParams = LinearLayout.LayoutParams(
@@ -107,16 +145,27 @@ class BlockOverlayActivity : Activity() {
                     setImageDrawable(icon)
                     layoutParams = LinearLayout.LayoutParams(dp(56), dp(56))
                         .apply { bottomMargin = dp(16) }
-                    alpha = 0.65f
+                    alpha = 0.85f
                 },
             )
         }
 
         card.addView(
             TextView(this).apply {
+                text = "Take a moment"
+                setTextColor(ACCENT)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 30f)
+                gravity = Gravity.CENTER
+                typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
+                setPadding(0, 0, 0, dp(12))
+            },
+        )
+
+        card.addView(
+            TextView(this).apply {
                 text = labelFor(blockedPackage)
-                setTextColor(Color.WHITE)
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 26f)
+                setTextColor(FOREGROUND)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 20f)
                 gravity = Gravity.CENTER
                 typeface = android.graphics.Typeface.DEFAULT_BOLD
             },
@@ -127,7 +176,7 @@ class BlockOverlayActivity : Activity() {
                 TextView(this).apply {
                     text = getString(R.string.block_by, detail.title)
                     setTextColor(MUTED)
-                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
                     gravity = Gravity.CENTER
                     setPadding(0, dp(6), 0, 0)
                 },
@@ -138,7 +187,7 @@ class BlockOverlayActivity : Activity() {
         card.addView(
             TextView(this).apply {
                 text = status
-                setTextColor(Color.WHITE)
+                setTextColor(FOREGROUND)
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
                 gravity = Gravity.CENTER
                 setLineSpacing(dp(4).toFloat(), 1f)
@@ -147,12 +196,12 @@ class BlockOverlayActivity : Activity() {
         )
 
         if (detail.progressPercent >= 0) {
-            card.addView(progressBar(detail.progressPercent, dp(6), dp(18)))
+            card.addView(progressBar(detail.progressPercent, dp(12), dp(20)))
             card.addView(
                 TextView(this).apply {
                     text = getString(R.string.block_progress, detail.progressPercent)
                     setTextColor(ACCENT)
-                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
                     gravity = Gravity.CENTER
                     setPadding(0, dp(8), 0, 0)
                 },
@@ -162,7 +211,8 @@ class BlockOverlayActivity : Activity() {
         if (unlockAt > 0) {
             countdown = TextView(this).apply {
                 setTextColor(ACCENT)
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 24f)
+                typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
                 gravity = Gravity.CENTER
                 setPadding(0, dp(16), 0, 0)
             }
@@ -172,22 +222,30 @@ class BlockOverlayActivity : Activity() {
         card.addView(
             Button(this).apply {
                 text = getString(R.string.block_go_home)
-                setTextColor(Color.WHITE)
+                setTextColor(BACKGROUND)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
                 isAllCaps = false
+                minHeight = dp(48)
+                minimumHeight = dp(48)
+                setPadding(dp(20), dp(12), dp(20), dp(12))
                 background = GradientDrawable().apply {
-                    cornerRadius = dp(18).toFloat()
-                    setColor(RAISED)
+                    cornerRadius = dp(24).toFloat()
+                    setColor(ACCENT)
                 }
                 setOnClickListener { goHome() }
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
-                    dp(50),
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
                 ).apply { topMargin = dp(26) }
             },
         )
 
         root.addView(card)
-        return root
+        return ScrollView(this).apply {
+            setBackgroundColor(BACKGROUND)
+            isFillViewport = true
+            addView(root)
+        }
     }
 
     private fun progressBar(percent: Int, height: Int, topMargin: Int) =
@@ -211,9 +269,9 @@ class BlockOverlayActivity : Activity() {
         }
 
     /** Returns false when there is nothing left to count down to. */
-    private fun renderCountdown(): Boolean {
+    private fun renderCountdown(now: Long): Boolean {
         val view = countdown ?: return false
-        val remaining = unlockAt - System.currentTimeMillis()
+        val remaining = unlockAt - now
 
         if (remaining <= 0) {
             view.text = getString(R.string.block_unlocking)
@@ -274,6 +332,7 @@ class BlockOverlayActivity : Activity() {
      * over an unrelated app.
      */
     override fun onPause() {
+        handler.removeCallbacks(tick)
         super.onPause()
         finish()
     }
@@ -284,10 +343,11 @@ class BlockOverlayActivity : Activity() {
         /** Package name for an app block, or the domain for a site block. */
         const val EXTRA_DETAIL_KEY = "detailKey"
 
-        private val BACKGROUND = Color.parseColor("#0B0B0D")
-        private val CARD = Color.parseColor("#161719")
-        private val RAISED = Color.parseColor("#25262A")
-        private val MUTED = Color.parseColor("#9A9AA0")
-        private val ACCENT = Color.parseColor("#32D74B")
+        private val BACKGROUND = Color.parseColor("#111612")
+        private val CARD = Color.parseColor("#1A211B")
+        private val RAISED = Color.parseColor("#303B31")
+        private val FOREGROUND = Color.parseColor("#F1F3E9")
+        private val MUTED = Color.parseColor("#B8C4B5")
+        private val ACCENT = Color.parseColor("#D8ECC2")
     }
 }

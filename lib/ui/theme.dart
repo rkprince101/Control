@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 /// The four looks offered in Settings.
 ///
@@ -22,10 +21,10 @@ enum AppThemeChoice {
       AppThemeChoice.system;
 
   ThemeMode get themeMode => switch (this) {
-        AppThemeChoice.system => ThemeMode.system,
-        AppThemeChoice.light => ThemeMode.light,
-        AppThemeChoice.black || AppThemeChoice.pitchBlack => ThemeMode.dark,
-      };
+    AppThemeChoice.system => ThemeMode.system,
+    AppThemeChoice.light => ThemeMode.light,
+    AppThemeChoice.black || AppThemeChoice.pitchBlack => ThemeMode.dark,
+  };
 }
 
 /// The Material 3 shape scale.
@@ -36,10 +35,10 @@ abstract final class Shapes {
   static const extraSmall = 4.0;
   static const small = 8.0;
   static const medium = 12.0;
-  static const large = 16.0;
-  static const extraLarge = 28.0;
+  static const large = 24.0;
+  static const extraLarge = 32.0;
 
-  static BorderRadius get chip => BorderRadius.circular(small);
+  static BorderRadius get chip => BorderRadius.circular(16);
   static BorderRadius get card => BorderRadius.circular(large);
   static BorderRadius get sheet => BorderRadius.circular(extraLarge);
   static BorderRadius get field => BorderRadius.circular(medium);
@@ -71,15 +70,15 @@ class ControlColors extends ThemeExtension<ControlColors> {
   /// Insights needs three steps that read as a scale, and error/tertiary/primary
   /// happen to be exactly red, amber and green in this scheme.
   factory ControlColors.fromScheme(ColorScheme scheme) => ControlColors(
-        background: scheme.surface,
-        card: scheme.surfaceContainerLow,
-        cardRaised: scheme.surfaceContainerHigh,
-        textMuted: scheme.onSurfaceVariant,
-        divider: scheme.outlineVariant,
-        heavy: scheme.error,
-        medium: scheme.tertiary,
-        light: scheme.primary,
-      );
+    background: scheme.surface,
+    card: scheme.surfaceContainerLow,
+    cardRaised: scheme.surfaceContainerHigh,
+    textMuted: scheme.onSurfaceVariant,
+    divider: scheme.outlineVariant,
+    heavy: scheme.error,
+    medium: scheme.tertiary,
+    light: scheme.primary,
+  );
 
   final Color background;
   final Color card;
@@ -116,17 +115,16 @@ class ControlColors extends ThemeExtension<ControlColors> {
     Color? heavy,
     Color? medium,
     Color? light,
-  }) =>
-      ControlColors(
-        background: background ?? this.background,
-        card: card ?? this.card,
-        cardRaised: cardRaised ?? this.cardRaised,
-        textMuted: textMuted ?? this.textMuted,
-        divider: divider ?? this.divider,
-        heavy: heavy ?? this.heavy,
-        medium: medium ?? this.medium,
-        light: light ?? this.light,
-      );
+  }) => ControlColors(
+    background: background ?? this.background,
+    card: card ?? this.card,
+    cardRaised: cardRaised ?? this.cardRaised,
+    textMuted: textMuted ?? this.textMuted,
+    divider: divider ?? this.divider,
+    heavy: heavy ?? this.heavy,
+    medium: medium ?? this.medium,
+    light: light ?? this.light,
+  );
 
   @override
   ControlColors lerp(ControlColors? other, double t) {
@@ -145,19 +143,17 @@ class ControlColors extends ThemeExtension<ControlColors> {
 }
 
 /// The accent the tonal palettes are generated from.
-const _seed = Color(0xFF32D74B);
+const _seed = Color(0xFF365E49);
 
 /// Amber, kept as its own seed so the middle of the severity ramp is a real
 /// hue rather than whatever tertiary the green seed happened to produce.
-const _warningSeed = Color(0xFFFF9F0A);
+const _warningSeed = Color(0xFFAA563A);
 
 ColorScheme _schemeFor(Brightness brightness) {
   final generated = ColorScheme.fromSeed(
     seedColor: _seed,
     brightness: brightness,
-    // Neutral keeps the greys grey. The default variant tints every surface
-    // towards the seed, which on a near-black app reads as a green cast.
-    dynamicSchemeVariant: DynamicSchemeVariant.neutral,
+    dynamicSchemeVariant: DynamicSchemeVariant.tonalSpot,
   );
   final warning = ColorScheme.fromSeed(
     seedColor: _warningSeed,
@@ -165,6 +161,15 @@ ColorScheme _schemeFor(Brightness brightness) {
   );
 
   return generated.copyWith(
+    surface: brightness == Brightness.light
+        ? const Color(0xFFF7F7F0)
+        : const Color(0xFF111612),
+    surfaceContainerLow: brightness == Brightness.light
+        ? const Color(0xFFEEEEE6)
+        : const Color(0xFF1A211B),
+    primaryContainer: brightness == Brightness.light
+        ? const Color(0xFFD8ECC2)
+        : generated.primaryContainer,
     tertiary: warning.primary,
     onTertiary: warning.onPrimary,
     tertiaryContainer: warning.primaryContainer,
@@ -177,15 +182,15 @@ ColorScheme _schemeFor(Brightness brightness) {
 /// The M3 surface family still has to read as a family: containers stay
 /// distinguishable from each other, they are just all much darker.
 ColorScheme _pitchBlackScheme(ColorScheme dark) => dark.copyWith(
-      surface: const Color(0xFF000000),
-      surfaceDim: const Color(0xFF000000),
-      surfaceBright: const Color(0xFF1A1A1D),
-      surfaceContainerLowest: const Color(0xFF000000),
-      surfaceContainerLow: const Color(0xFF0A0A0C),
-      surfaceContainer: const Color(0xFF101012),
-      surfaceContainerHigh: const Color(0xFF17171A),
-      surfaceContainerHighest: const Color(0xFF1F1F22),
-    );
+  surface: const Color(0xFF000000),
+  surfaceDim: const Color(0xFF000000),
+  surfaceBright: const Color(0xFF1A1A1D),
+  surfaceContainerLowest: const Color(0xFF000000),
+  surfaceContainerLow: const Color(0xFF0A0A0C),
+  surfaceContainer: const Color(0xFF101012),
+  surfaceContainerHigh: const Color(0xFF17171A),
+  surfaceContainerHighest: const Color(0xFF1F1F22),
+);
 
 ThemeData buildControlTheme({
   required Brightness brightness,
@@ -205,6 +210,27 @@ ThemeData buildControlTheme({
     scaffoldBackgroundColor: scheme.surface,
     textTheme: typography,
     extensions: [colors],
+    visualDensity: VisualDensity.standard,
+    navigationBarTheme: NavigationBarThemeData(
+      height: 80,
+      backgroundColor: scheme.surfaceContainerLow,
+      indicatorColor: scheme.primaryContainer,
+      labelTextStyle: WidgetStatePropertyAll(typography.labelMedium),
+      elevation: 0,
+    ),
+    navigationRailTheme: NavigationRailThemeData(
+      backgroundColor: scheme.surface,
+      indicatorColor: scheme.primaryContainer,
+      selectedLabelTextStyle: typography.labelLarge,
+      unselectedLabelTextStyle: typography.labelMedium,
+    ),
+    floatingActionButtonTheme: FloatingActionButtonThemeData(
+      backgroundColor: scheme.primaryContainer,
+      foregroundColor: scheme.onPrimaryContainer,
+      elevation: 0,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+      extendedTextStyle: typography.labelLarge,
+    ),
 
     // M3 leans on tonal surfaces instead of shadows, so the shadow is removed
     // rather than softened: a drop shadow under a container that is already
@@ -268,7 +294,7 @@ ThemeData buildControlTheme({
     ),
     textButtonTheme: TextButtonThemeData(
       style: TextButton.styleFrom(
-        minimumSize: const Size(0, 44),
+        minimumSize: const Size(0, 48),
         shape: const StadiumBorder(),
         textStyle: typography.labelLarge,
       ),
@@ -338,27 +364,33 @@ ThemeData buildControlTheme({
   );
 }
 
-/// Nunito across the whole M3 type scale.
-///
-/// Rounded to match the shape scale, and chosen over the geometric rounded
-/// faces because this app is mostly numbers: durations, step counts, times and
-/// percentages. Nunito keeps a tall x-height and unambiguous digits at 12sp,
-/// where the rounder display faces turn 6, 8 and 0 into the same blob.
+/// System typography stays available offline, including on the first launch.
 TextTheme _typographyFor(ColorScheme scheme) {
-  final base = GoogleFonts.nunitoTextTheme(
-    ThemeData(brightness: scheme.brightness).textTheme,
-  ).apply(bodyColor: scheme.onSurface, displayColor: scheme.onSurface);
+  final base = ThemeData(brightness: scheme.brightness).textTheme.apply(
+    bodyColor: scheme.onSurface,
+    displayColor: scheme.onSurface,
+  );
 
   return base.copyWith(
-    // Slightly tighter than the M3 default: the screen titles are single
-    // lowercase words, and the stock tracking makes them look spaced out.
+    displayLarge: base.displayLarge?.copyWith(
+      fontWeight: FontWeight.w800,
+      letterSpacing: -2.5,
+    ),
+    displayMedium: base.displayMedium?.copyWith(
+      fontWeight: FontWeight.w800,
+      letterSpacing: -2,
+    ),
+    displaySmall: base.displaySmall?.copyWith(
+      fontWeight: FontWeight.w800,
+      letterSpacing: -1.5,
+    ),
     headlineLarge: base.headlineLarge?.copyWith(
       fontWeight: FontWeight.w800,
-      letterSpacing: -0.5,
+      letterSpacing: -1.2,
     ),
     headlineMedium: base.headlineMedium?.copyWith(
       fontWeight: FontWeight.w800,
-      letterSpacing: -0.4,
+      letterSpacing: -0.8,
     ),
     headlineSmall: base.headlineSmall?.copyWith(fontWeight: FontWeight.w700),
     titleLarge: base.titleLarge?.copyWith(fontWeight: FontWeight.w700),

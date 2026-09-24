@@ -36,8 +36,9 @@ class ControlSegmented<T> extends StatelessWidget {
         borderRadius: BorderRadius.circular(compact ? 16 : 20),
       ),
       padding: EdgeInsets.all(compact ? 3 : 4),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
+      child: Wrap(
+        spacing: 4,
+        runSpacing: 4,
         children: [
           for (final (optionValue, label) in options)
             _Segment(
@@ -71,31 +72,49 @@ class _Segment extends StatelessWidget {
     final scheme = theme.colorScheme;
     final radius = BorderRadius.circular(compact ? 13 : 17);
 
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: radius,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 180),
-          curve: Curves.easeOutCubic,
-          padding: EdgeInsets.symmetric(
-            horizontal: compact ? 14 : 18,
-            vertical: compact ? 7 : 10,
-          ),
-          decoration: BoxDecoration(
-            color: selected ? scheme.secondaryContainer : Colors.transparent,
+    return Semantics(
+      selected: selected,
+      button: true,
+      label: label,
+      onTap: onTap,
+      child: ExcludeSemantics(
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: onTap,
             borderRadius: radius,
-          ),
-          child: Text(
-            label,
-            style: (compact
-                    ? theme.textTheme.labelMedium
-                    : theme.textTheme.labelLarge)
-                ?.copyWith(
-              color: selected
-                  ? scheme.onSecondaryContainer
-                  : scheme.onSurfaceVariant,
+            child: AnimatedContainer(
+              duration: MediaQuery.disableAnimationsOf(context)
+                  ? Duration.zero
+                  : const Duration(milliseconds: 180),
+              curve: Curves.easeOutCubic,
+              padding: EdgeInsets.symmetric(
+                horizontal: compact ? 14 : 18,
+                vertical: compact ? 7 : 10,
+              ),
+              constraints: const BoxConstraints(minHeight: 48, minWidth: 56),
+              decoration: BoxDecoration(
+                color: selected
+                    ? scheme.secondaryContainer
+                    : Colors.transparent,
+                borderRadius: radius,
+              ),
+              child: Center(
+                widthFactor: 1,
+                heightFactor: 1,
+                child: Text(
+                  label,
+                  style:
+                      (compact
+                              ? theme.textTheme.labelMedium
+                              : theme.textTheme.labelLarge)
+                          ?.copyWith(
+                            color: selected
+                                ? scheme.onSecondaryContainer
+                                : scheme.onSurfaceVariant,
+                          ),
+                ),
+              ),
             ),
           ),
         ),
@@ -126,29 +145,45 @@ class ControlChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final foreground =
-        selected ? scheme.onSecondaryContainer : scheme.onSurfaceVariant;
+    final foreground = selected
+        ? scheme.onSecondaryContainer
+        : scheme.onSurfaceVariant;
 
-    return Material(
-      color: selected ? scheme.secondaryContainer : scheme.surfaceContainerHigh,
-      borderRadius: Shapes.chip,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: Shapes.chip,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (icon != null) ...[
-                Icon(icon, size: 16, color: foreground),
-                const SizedBox(width: 6),
-              ],
-              Text(
-                label,
-                style: theme.textTheme.labelLarge?.copyWith(color: foreground),
+    return Semantics(
+      selected: selected,
+      button: true,
+      label: label,
+      onTap: onTap,
+      child: ExcludeSemantics(
+        child: Material(
+          color: selected
+              ? scheme.secondaryContainer
+              : scheme.surfaceContainerHigh,
+          borderRadius: Shapes.chip,
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: Shapes.chip,
+            child: Container(
+              constraints: const BoxConstraints(minHeight: 48),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (icon != null) ...[
+                    Icon(icon, size: 16, color: foreground),
+                    const SizedBox(width: 6),
+                  ],
+                  Flexible(
+                    child: Text(
+                      label,
+                      style: theme.textTheme.labelLarge?.copyWith(
+                        color: foreground,
+                      ),
+                    ),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
         ),
       ),
@@ -196,36 +231,60 @@ class WeekdayPicker extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          Wrap(
+            spacing: 4,
+            runSpacing: 4,
             children: [
               for (final (day, label) in _days)
                 () {
                   final isOn = selected.contains(day);
-                  return Material(
-                    color: isOn
-                        ? scheme.secondaryContainer
-                        : scheme.surfaceContainerHigh,
-                    shape: const CircleBorder(),
-                    child: InkWell(
-                      customBorder: const CircleBorder(),
-                      onTap: enabled
-                          ? () {
-                              final next = {...selected};
-                              if (!next.remove(day)) next.add(day);
-                              onChanged(next);
-                            }
-                          : null,
-                      child: SizedBox(
-                        width: 40,
-                        height: 40,
-                        child: Center(
-                          child: Text(
-                            label,
-                            style: theme.textTheme.labelLarge?.copyWith(
-                              color: isOn
-                                  ? scheme.onSecondaryContainer
-                                  : scheme.onSurfaceVariant,
+                  return Semantics(
+                    label: const [
+                      'Monday',
+                      'Tuesday',
+                      'Wednesday',
+                      'Thursday',
+                      'Friday',
+                      'Saturday',
+                      'Sunday',
+                    ][day - 1],
+                    selected: isOn,
+                    enabled: enabled,
+                    button: true,
+                    onTap: enabled
+                        ? () {
+                            final next = {...selected};
+                            if (!next.remove(day)) next.add(day);
+                            onChanged(next);
+                          }
+                        : null,
+                    child: ExcludeSemantics(
+                      child: Material(
+                        color: isOn
+                            ? scheme.secondaryContainer
+                            : scheme.surfaceContainerHigh,
+                        shape: const CircleBorder(),
+                        child: InkWell(
+                          customBorder: const CircleBorder(),
+                          onTap: enabled
+                              ? () {
+                                  final next = {...selected};
+                                  if (!next.remove(day)) next.add(day);
+                                  onChanged(next);
+                                }
+                              : null,
+                          child: SizedBox(
+                            width: 48,
+                            height: 48,
+                            child: Center(
+                              child: Text(
+                                label,
+                                style: theme.textTheme.labelLarge?.copyWith(
+                                  color: isOn
+                                      ? scheme.onSecondaryContainer
+                                      : scheme.onSurfaceVariant,
+                                ),
+                              ),
                             ),
                           ),
                         ),
@@ -243,7 +302,8 @@ class WeekdayPicker extends StatelessWidget {
               for (final (label, days) in presets)
                 ControlChip(
                   label: label,
-                  selected: selected.length == days.length &&
+                  selected:
+                      selected.length == days.length &&
                       selected.containsAll(days),
                   onTap: enabled ? () => onChanged({...days}) : () {},
                 ),

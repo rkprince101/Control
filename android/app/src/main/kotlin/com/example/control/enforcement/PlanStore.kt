@@ -8,9 +8,7 @@ import org.json.JSONObject
 /**
  * What the block screen says about one blocked app or site.
  *
- * Computed in Dart, where the rules live, and carried down as text. The screen
- * has to explain itself the instant it appears, and the enforcer has no way to
- * evaluate a rule on its own.
+ * Legacy text comes from Dart; authoritative rules generate current details.
  */
 data class BlockDetail(
     /** The name of the block that is doing this. */
@@ -28,8 +26,8 @@ data class BlockDetail(
 }
 
 /**
- * The materialised output of the Dart rule engine, cached where native code can
- * read it synchronously.
+ * Enabled native rules plus the legacy Dart snapshot, cached synchronously.
+ * Evaluation requires an explicit clock sample rather than a wall-clock default.
  */
 data class Plan(
     val blockedPackages: Set<String>,
@@ -40,16 +38,54 @@ data class Plan(
     val updatedAt: Long,
     /** Keyed by package name, and by domain for the browser guard. */
     val details: Map<String, BlockDetail>,
+    /** Null is the legacy snapshot contract; an empty list clears all rules. */
+    val rules: List<NativeRule>? = null,
 ) {
-    fun blocks(packageName: String) = blockedPackages.contains(packageName)
+    fun blocks(
+        packageName: String,
+        categories: Set<String> = emptySet(),
+        now: Long,
+    ): Boolean = rules?.any { it.isBlocked(now) && it.targets(packageName, categories) }
+        ?: blockedPackages.contains(packageName)
 
-    fun detailFor(key: String) = details[key] ?: BlockDetail.EMPTY
+    fun effectiveDomains(now: Long): Set<String> =
+        rules?.filter { it.isBlocked(now) }?.flatMap { it.blockedDomains }?.toSet()
+            ?: blockedDomains
+
+    fun effectivePackages(
+        candidates: Set<String>,
+        categories: (String) -> Set<String>,
+        now: Long,
+    ): Set<String> {
+        val currentRules = rules ?: return blockedPackages
+        val active = currentRules.filter { it.isBlocked(now) }
+        return buildSet {
+            active.forEach { addAll(it.apps) }
+            if (active.any { it.categories.isNotEmpty() }) {
+                candidates.forEach { app ->
+                    val tokens = categories(app)
+                    if (active.any { it.targets(app, tokens) }) add(app)
+                }
+            }
+        }
+    }
+
+    fun detailFor(
+        key: String,
+        categories: Set<String> = emptySet(),
+        now: Long,
+    ): BlockDetail {
+        val currentRules = rules ?: return details[key] ?: BlockDetail.EMPTY
+        val matches = currentRules.filter {
+            it.isBlocked(now) && (it.targets(key, categories) || key in it.blockedDomains)
+        }
+        val first = matches.firstOrNull() ?: return BlockDetail.EMPTY
+        return first.detail().copy(title = matches.map { it.title }.distinct().joinToString(", "))
+    }
 
     /**
-     * A plan whose wake time has passed is stale: the schedule moved on but
-     * nobody recomputed. Callers keep enforcing it anyway and trigger a
-     * refresh, because dropping the shield on staleness is exactly the bypass
-     * a user would learn to trigger on purpose.
+     * Snapshot freshness only. Legacy plans retain their blocks on staleness;
+     * authoritative rules evaluate current time instead of trusting the snapshot.
      */
     fun isStale(now: Long) = nextWakeAt in 1 until now
 
@@ -60,8 +96,12 @@ data class Plan(
 
 class PlanStore(context: Context) {
 
-    private val prefs: SharedPreferences =
-        context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    private val context = context.applicationContext
+
+    // Re-obtain after unlock: an upgrade can migrate the legacy file while an
+    // already-bound direct-boot service still holds this PlanStore.
+    private val prefs: SharedPreferences
+        get() = EnforcementStorage.preferences(context, PREFS)
 
     /**
      * Parsed form of [cachedRaw], and nothing more.
@@ -125,6 +165,7 @@ object PlanCodec {
             .put(FIELD_NEXT_WAKE, plan.nextWakeAt)
             .put(FIELD_UPDATED_AT, plan.updatedAt)
             .put(FIELD_DETAILS, details)
+            .apply { plan.rules?.let { put("rules", encodeRules(it)) } }
             .toString()
     }
 
@@ -153,6 +194,64 @@ object PlanCodec {
             nextWakeAt = json.optLong(FIELD_NEXT_WAKE, 0L),
             updatedAt = json.optLong(FIELD_UPDATED_AT, 0L),
             details = details,
+            rules = json.optJSONArray("rules")?.let(::decodeRules),
+        )
+    }
+
+    fun encodeRules(rules: List<NativeRule>): JSONArray = JSONArray().apply {
+        rules.forEach { rule ->
+            put(JSONObject()
+                .put("id", rule.id)
+                .put("title", rule.title)
+                .put("mode", rule.mode)
+                .put("apps", JSONArray(rule.apps.toList()))
+                .put("categories", JSONArray(rule.categories.toList()))
+                .put("excludedApps", JSONArray(rule.excludedApps.toList()))
+                .put("blockedDomains", JSONArray(rule.blockedDomains.toList()))
+                .put("schedule", JSONArray().apply {
+                    rule.schedule.forEach { range ->
+                        put(JSONObject()
+                            .put("startMinute", range.startMinute)
+                            .put("endMinute", range.endMinute)
+                            .put("weekdays", JSONArray(range.weekdays.toList())))
+                    }
+                })
+                .put("schedulePolarity", rule.schedulePolarity)
+                .put("blocked", rule.blocked)
+                .put("allowedUntil", rule.allowedUntil))
+        }
+    }
+
+    fun decodeRules(array: JSONArray): List<NativeRule> = (0 until array.length()).map { index ->
+        val raw = array.getJSONObject(index)
+        val mode = raw.getString("mode")
+        require(mode in setOf("time", "condition", "place", "device")) { "Unknown rule mode" }
+        val polarity = raw.optString("schedulePolarity", "blockDuring")
+        require(polarity in setOf("blockDuring", "allowDuring")) { "Unknown schedule polarity" }
+        val schedule = raw.optJSONArray("schedule") ?: JSONArray()
+        NativeRule(
+            id = raw.getString("id"),
+            title = raw.optString("title"),
+            mode = mode,
+            apps = raw.optJSONArray("apps").toStringSet(),
+            categories = raw.optJSONArray("categories").toStringSet(),
+            excludedApps = raw.optJSONArray("excludedApps").toStringSet(),
+            blockedDomains = raw.optJSONArray("blockedDomains").toStringSet(),
+            schedule = (0 until schedule.length()).map { i ->
+                val range = schedule.getJSONObject(i)
+                val days = range.getJSONArray("weekdays")
+                NativeTimeRange(
+                    range.getInt("startMinute"),
+                    range.getInt("endMinute"),
+                    (0 until days.length()).map { days.getInt(it) }.toSet(),
+                ).also {
+                    require(it.startMinute in 0..1439 && it.endMinute in 0..1439)
+                    require(it.weekdays.all { day -> day in 1..7 })
+                }
+            },
+            schedulePolarity = polarity,
+            blocked = raw.optBoolean("blocked", false),
+            allowedUntil = raw.optLong("allowedUntil", 0L),
         )
     }
 

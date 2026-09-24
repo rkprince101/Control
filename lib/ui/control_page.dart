@@ -1,64 +1,103 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
-/// The shell every tab sits in.
-///
-/// A pinned top app bar carrying the screen title, sized to the title and
-/// nothing more.
-///
-/// The large and medium M3 variants both anchor their title to the *bottom* of
-/// an expanded band, which means the space above it is empty by design: 152dp
-/// for large, 112 for medium. On a phone that reads as a screen that starts a
-/// third of the way down, and it was the single loudest complaint about this
-/// layout. A pinned bar at 64dp keeps the oversized title and the scroll-under
-/// behaviour without reserving a band to hold nothing.
+import 'navigation.dart';
+
+/// A shared responsive canvas, with independently retained tab scroll positions.
 class ControlPage extends StatelessWidget {
   const ControlPage({
     required this.title,
     required this.children,
     this.actions = const [],
+    this.eyebrow,
+    this.subtitle,
     super.key,
   });
 
   final String title;
   final List<Widget> children;
   final List<Widget> actions;
+  final String? eyebrow;
+  final String? subtitle;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-
-    return CustomScrollView(
-      slivers: [
-        SliverAppBar(
-          pinned: true,
-          title: Text(title),
-          actions: actions,
-          backgroundColor: scheme.surface,
-          surfaceTintColor: Colors.transparent,
-          scrolledUnderElevation: 0,
-          shadowColor: Colors.transparent,
-          titleTextStyle: theme.textTheme.headlineMedium,
-          // Aligns the title with the 20dp body padding rather than the 16dp
-          // default, so the heading and the cards share one left edge.
-          titleSpacing: 20,
-          toolbarHeight: 64,
-        ),
-        SliverPadding(
-          // Bottom room for the floating nav pill, which the body extends
-          // underneath.
-          padding: const EdgeInsets.fromLTRB(20, 0, 20, 108),
-          sliver: SliverList(
-            delegate: SliverChildListDelegate.fixed(children),
-          ),
-        ),
-      ],
+    // Inside the app shell every page carries the search bar, which floats
+    // back in on the first scroll up, as it does in Gmail.
+    final inShell = HomeNavigation.maybeOf(context) != null;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final side = math.max(20.0, (constraints.maxWidth - 1120) / 2);
+        return CustomScrollView(
+          key: PageStorageKey(title),
+          physics: const AlwaysScrollableScrollPhysics(),
+          slivers: [
+            if (inShell)
+              SliverFloatingHeader(
+                child: ShellSearchBar(horizontalPadding: side),
+              ),
+            SliverSafeArea(
+              bottom: false,
+              sliver: SliverPadding(
+                padding: EdgeInsets.fromLTRB(side, inShell ? 12 : 24, side, 24),
+                sliver: SliverToBoxAdapter(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (eyebrow != null) ...[
+                        Text(
+                          eyebrow!.toUpperCase(),
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: theme.colorScheme.primary,
+                            letterSpacing: 2,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                      ],
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          Expanded(
+                            child: Semantics(
+                              header: true,
+                              child: Text(
+                                title,
+                                style: theme.textTheme.headlineLarge,
+                              ),
+                            ),
+                          ),
+                          ...actions,
+                        ],
+                      ),
+                      if (subtitle != null) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          subtitle!,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                            height: 1.4,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            SliverPadding(
+              padding: EdgeInsets.fromLTRB(side, 0, side, 104),
+              sliver: SliverList(delegate: SliverChildListDelegate(children)),
+            ),
+          ],
+        );
+      },
     );
   }
 }
 
-/// A tinted hero container, the way M3 uses a container role to make one number
-/// the subject of a screen.
 class HeroCard extends StatelessWidget {
   const HeroCard({
     required this.child,
@@ -66,26 +105,18 @@ class HeroCard extends StatelessWidget {
     this.padding = const EdgeInsets.all(24),
     super.key,
   });
-
   final Widget child;
+  final Color? tone;
   final EdgeInsets padding;
 
-  /// Defaults to `secondaryContainer`, the M3 role for a supporting emphasis
-  /// surface that is not competing with the primary action.
-  final Color? tone;
-
   @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-
-    return Container(
-      width: double.infinity,
-      padding: padding,
-      decoration: BoxDecoration(
-        color: tone ?? scheme.secondaryContainer,
-        borderRadius: BorderRadius.circular(28),
-      ),
-      child: child,
-    );
-  }
+  Widget build(BuildContext context) => Container(
+    width: double.infinity,
+    padding: padding,
+    decoration: BoxDecoration(
+      color: tone ?? Theme.of(context).colorScheme.primaryContainer,
+      borderRadius: BorderRadius.circular(32),
+    ),
+    child: child,
+  );
 }

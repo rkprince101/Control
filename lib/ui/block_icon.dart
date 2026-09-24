@@ -133,26 +133,16 @@ class _IconPickerSheetState extends State<IconPickerSheet> {
       heightFactor: 0.9,
       child: Column(
         children: [
-            const SheetGrabber(),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 4),
-            child: Row(
-              children: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text('Cancel'),
-                ),
-                const Spacer(),
-                const Text(
-                  'Icon',
-                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
-                ),
-                const Spacer(),
-                TextButton(
-                  onPressed: () => Navigator.pop(context, ''),
-                  child: const Text('Clear'),
-                ),
-              ],
+          const SheetGrabber(),
+          SheetHeader(
+            title: 'Icon',
+            leading: SheetAction(
+              'Cancel',
+              onPressed: () => Navigator.pop(context),
+            ),
+            trailing: SheetAction(
+              'Clear',
+              onPressed: () => Navigator.pop(context, ''),
             ),
           ),
           Padding(

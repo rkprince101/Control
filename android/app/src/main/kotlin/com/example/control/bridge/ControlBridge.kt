@@ -5,40 +5,55 @@ import android.app.Activity
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import android.text.TextUtils
 import com.example.control.enforcement.ControlAccessibilityService
+import com.example.control.enforcement.EnforcementClock
 import com.example.control.enforcement.DeviceAdmin
 import com.example.control.enforcement.Plan
 import com.example.control.enforcement.BlockDetail
 import com.example.control.enforcement.PlanStore
+import com.example.control.enforcement.PlanCodec
 import com.example.control.enforcement.TamperGuard
 import com.example.control.insights.InstalledAppsReader
+import com.example.control.insights.AppCategoryResolver
 import com.example.control.insights.LocationReader
 import com.example.control.insights.StepsReader
 import com.example.control.insights.UsageStatsReader
 import com.example.control.shortcuts.ShortcutStore
 import com.example.control.surface.ControlWidgetProvider
+import com.example.control.surface.FocusTimer
+import com.example.control.surface.NotificationAccess
+import com.example.control.surface.HabitReminder
+import com.example.control.surface.HabitReminders
 import com.example.control.surface.Summary
 import com.example.control.surface.SummaryStore
 import com.example.control.surface.WeeklyReport
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
+import org.json.JSONArray
+import java.util.concurrent.ArrayBlockingQueue
+import java.util.concurrent.RejectedExecutionException
+import java.util.concurrent.ThreadPoolExecutor
+import java.util.concurrent.TimeUnit
 
 /**
  * The single seam between the Dart rule engine and Android.
  *
- * Dart owns every decision and pushes a flattened plan down; native owns
- * permissions, measurement, and the actual blocking. Nothing here re-implements
- * a rule, so the two sides can never disagree about what should be blocked.
+ * Dart supplies enabled rules and signal snapshots. Native keeps recurring
+ * schedules, grant expiry and package categories current while Dart is asleep.
  */
 class ControlBridge(private val context: Context) : MethodChannel.MethodCallHandler {
 
     private val planStore = PlanStore(context)
     private val usage = UsageStatsReader(context)
     private val apps = InstalledAppsReader(context)
+    private val categories = AppCategoryResolver(context)
     private val steps = StepsReader(context)
     private val location = LocationReader(context)
     private val shortcuts = ShortcutStore(context)
@@ -46,6 +61,12 @@ class ControlBridge(private val context: Context) : MethodChannel.MethodCallHand
     private val summaries = SummaryStore(context)
 
     private var channel: MethodChannel? = null
+    private val timelineHandler = Handler(Looper.getMainLooper())
+    private val timelineLifecycle = Any()
+    private var timelineExecutor: ThreadPoolExecutor? = null
+    private var timelineGeneration = 0L
+    private var timelineRequest = 0L
+    private val timelineResults = mutableMapOf<Long, MethodChannel.Result>()
 
     /**
      * Set while an Activity is attached. Only runtime permission requests need
@@ -55,11 +76,22 @@ class ControlBridge(private val context: Context) : MethodChannel.MethodCallHand
     private var activity: Activity? = null
 
     fun attach(messenger: BinaryMessenger, activity: Activity?) {
+        detach()
         this.activity = activity
+        timelineExecutor = ThreadPoolExecutor(
+            1, 1, 0L, TimeUnit.MILLISECONDS, ArrayBlockingQueue(4),
+        )
         channel = MethodChannel(messenger, CHANNEL).also { it.setMethodCallHandler(this) }
     }
 
     fun detach() {
+        synchronized(timelineLifecycle) {
+            timelineGeneration++
+            timelineExecutor?.shutdownNow()
+            timelineExecutor = null
+            timelineHandler.removeCallbacksAndMessages(null)
+            timelineResults.clear()
+        }
         channel?.setMethodCallHandler(null)
         channel = null
         activity = null
@@ -70,6 +102,7 @@ class ControlBridge(private val context: Context) : MethodChannel.MethodCallHand
             // Enforcement -----------------------------------------------------
             "applyPlan" -> applyPlan(call, result)
             "readPlan" -> result.success(planStore.read().toMap())
+            "enforcementTime" -> result.success(EnforcementClock.now(context))
 
             "isAccessibilityEnabled" -> result.success(isAccessibilityEnabled())
             "openAccessibilitySettings" -> {
@@ -84,6 +117,7 @@ class ControlBridge(private val context: Context) : MethodChannel.MethodCallHand
                 result.success(null)
             }
             "usageSnapshot" -> usageSnapshot(call, result)
+            "usageTimeline" -> usageTimeline(call, result)
             "installedApps" -> result.success(apps.launchable().map { it.toMap() })
             "appIcon" -> appIcon(call, result)
 
@@ -165,6 +199,47 @@ class ControlBridge(private val context: Context) : MethodChannel.MethodCallHand
                 requestNotificationPermission()
                 result.success(null)
             }
+            "showFocusTimer" -> {
+                FocusTimer.show(
+                    context,
+                    title = call.argument<String>("title") ?: "",
+                    text = call.argument<String>("text") ?: "",
+                    clockAt = call.argument<Number>("clockAt")?.toLong() ?: 0L,
+                    countDown = call.argument<Boolean>("countDown") ?: false,
+                    endsAt = call.argument<Number>("endsAt")?.toLong() ?: 0L,
+                    doneTitle = call.argument<String>("doneTitle") ?: "",
+                    doneText = call.argument<String>("doneText") ?: "",
+                )
+                result.success(null)
+            }
+            "cancelFocusTimer" -> {
+                FocusTimer.cancel(context)
+                result.success(null)
+            }
+            "finishFocusTimer" -> {
+                FocusTimer.finish(context)
+                result.success(null)
+            }
+            "notificationStatus" -> result.success(
+                mapOf(
+                    "enabled" to NotificationAccess.enabled(context),
+                    "exactAlarms" to NotificationAccess.canUseExactAlarms(context),
+                    "exactRelevant" to NotificationAccess.exactAlarmsRelevant(),
+                ),
+            )
+            "fixNotifications" -> {
+                fixNotifications()
+                result.success(null)
+            }
+            "openExactAlarmSettings" -> {
+                NotificationAccess.exactAlarmIntent(context)?.let { startExternal(it) }
+                result.success(null)
+            }
+            "setHabitReminders" -> {
+                val raw = call.argument<List<Map<*, *>>>("reminders") ?: emptyList()
+                HabitReminders.replace(context, raw.mapNotNull { HabitReminder.fromMap(it) })
+                result.success(null)
+            }
 
             // Uninstall protection --------------------------------------------
             "protectionStatus" -> result.success(
@@ -192,6 +267,7 @@ class ControlBridge(private val context: Context) : MethodChannel.MethodCallHand
                 result.success(null)
             }
             "releaseProtection" -> {
+                tamperGuard.enabled = false
                 DeviceAdmin.deactivate(context)
                 result.success(null)
             }
@@ -220,14 +296,23 @@ class ControlBridge(private val context: Context) : MethodChannel.MethodCallHand
                 )
             }
         val nextWakeAt = call.argument<Number>("nextWakeAt")?.toLong() ?: 0L
+        val rules = try {
+            call.argument<List<Map<String, Any?>>>("rules")?.let {
+                PlanCodec.decodeRules(JSONArray(it))
+            }
+        } catch (error: Exception) {
+            result.error("bad_args", "Invalid native rules: ${error.message}", null)
+            return
+        }
 
         planStore.write(
             Plan(
                 blockedPackages = packages.toSet(),
                 blockedDomains = domains.toSet(),
                 nextWakeAt = nextWakeAt,
-                updatedAt = System.currentTimeMillis(),
+                updatedAt = EnforcementClock.now(context),
                 details = details,
+                rules = rules,
             ),
         )
         result.success(null)
@@ -259,6 +344,81 @@ class ControlBridge(private val context: Context) : MethodChannel.MethodCallHand
                 },
             ),
         )
+    }
+
+    private fun usageTimeline(call: MethodCall, result: MethodChannel.Result) {
+        val start = call.argument<Number>("startMillis")?.toLong()
+        val end = call.argument<Number>("endMillis")?.toLong()
+        val bucket = call.argument<String>("bucket")
+        if (start == null || end == null || start < 0 || end < start ||
+            end - start > TimeUnit.DAYS.toMillis(366) || bucket !in listOf("hour", "day")
+        ) {
+            result.error("bad_args", "Supply valid bounds (at most 366 days) and bucket hour or day", null)
+            return
+        }
+        val executor = timelineExecutor
+        if (executor == null) {
+            result.error("unavailable", "Usage bridge is detached", null)
+            return
+        }
+        val request = ++timelineRequest
+        val generation = timelineGeneration
+        timelineResults[request] = result
+        try {
+            // The task holds only an ID, never a Flutter Result or Activity callback.
+            executor.execute { queryTimeline(request, generation, start, end, bucket!!) }
+        } catch (_: RejectedExecutionException) {
+            timelineResults.remove(request)
+            result.error("usage_busy", "Usage history is busy. Please try again.", null)
+        }
+    }
+
+    private fun queryTimeline(request: Long, generation: Long, start: Long, end: Long, bucket: String) {
+        var errorCode: String? = null
+        var errorMessage: String? = null
+        val payload = try {
+            val snapshot = usage.timeline(start, end, bucket)
+            mapOf(
+                "apps" to snapshot.apps.map {
+                    mapOf("package" to it.packageName, "label" to it.label, "millis" to it.foregroundMillis)
+                },
+                "totalScreenMillis" to snapshot.totalScreenMillis,
+                "pickups" to snapshot.pickups,
+                "buckets" to snapshot.buckets.map {
+                    mapOf(
+                        "startMillis" to it.startMillis, "endMillis" to it.endMillis,
+                        "millis" to it.millis, "pickups" to it.pickups,
+                    )
+                },
+                "startMillis" to snapshot.startMillis,
+                "endMillis" to snapshot.endMillis,
+                "firstEventAt" to snapshot.firstEventAt,
+                "historyNote" to snapshot.historyNote,
+            )
+        } catch (_: SecurityException) {
+            errorCode = "permission_denied"
+            errorMessage = "Usage access has not been granted"
+            null
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+            return
+        } catch (_: Exception) {
+            errorCode = "usage_unavailable"
+            errorMessage = "Android could not read usage history. Please try again."
+            null
+        }
+        synchronized(timelineLifecycle) {
+            // Serialize posting with detach so no old callback survives a new attachment.
+            if (generation != timelineGeneration) return
+            timelineHandler.post {
+                if (generation == timelineGeneration) {
+                    timelineResults.remove(request)?.let {
+                        if (errorCode == null) it.success(payload)
+                        else it.error(errorCode, errorMessage, null)
+                    }
+                }
+            }
+        }
     }
 
     private fun appIcon(call: MethodCall, result: MethodChannel.Result) {
@@ -299,11 +459,37 @@ class ControlBridge(private val context: Context) : MethodChannel.MethodCallHand
 
     private fun requestNotificationPermission() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
-        activity?.requestPermissions(
+        val host = activity ?: return
+        notificationPrefs().edit().putBoolean(KEY_ASKED_NOTIFICATIONS, true).apply()
+        host.requestPermissions(
             arrayOf(Manifest.permission.POST_NOTIFICATIONS),
             NOTIFICATION_PERMISSION_REQUEST,
         )
     }
+
+    /**
+     * The Settings row's fix: the system prompt while Android will still show
+     * it, the app's notification settings once it will not (denied twice, or
+     * notifications switched off there by hand).
+     */
+    private fun fixNotifications() {
+        if (NotificationAccess.enabled(context)) return
+        val host = activity
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            host != null &&
+            context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED &&
+            (!notificationPrefs().getBoolean(KEY_ASKED_NOTIFICATIONS, false) ||
+                host.shouldShowRequestPermissionRationale(Manifest.permission.POST_NOTIFICATIONS))
+        ) {
+            requestNotificationPermission()
+            return
+        }
+        startExternal(NotificationAccess.settingsIntent(context))
+    }
+
+    private fun notificationPrefs() =
+        context.getSharedPreferences(NOTIFICATION_PREFS, Context.MODE_PRIVATE)
 
     private fun requestLocationPermission() {
         activity?.requestPermissions(
@@ -347,17 +533,25 @@ class ControlBridge(private val context: Context) : MethodChannel.MethodCallHand
         return false
     }
 
-    private fun Plan.toMap(): Map<String, Any?> = mapOf(
-        "blockedPackages" to blockedPackages.toList(),
-        "blockedDomains" to blockedDomains.toList(),
-        "nextWakeAt" to nextWakeAt,
-        "updatedAt" to updatedAt,
-    )
+    private fun Plan.toMap(): Map<String, Any?> {
+        val now = EnforcementClock.now(context)
+        val candidates = if (rules?.any { it.categories.isNotEmpty() } == true) {
+            apps.launchable().map { it.packageName }.toSet()
+        } else emptySet()
+        return mapOf(
+            "blockedPackages" to effectivePackages(candidates, categories::categories, now).toList(),
+            "blockedDomains" to effectiveDomains(now).toList(),
+            "nextWakeAt" to nextWakeAt,
+            "updatedAt" to updatedAt,
+        )
+    }
 
     private companion object {
         const val CHANNEL = "dev.control/enforcement"
         const val STEPS_PERMISSION_REQUEST = 4801
         const val LOCATION_PERMISSION_REQUEST = 4802
         const val NOTIFICATION_PERMISSION_REQUEST = 4803
+        const val NOTIFICATION_PREFS = "notification_access"
+        const val KEY_ASKED_NOTIFICATIONS = "askedForNotifications"
     }
 }

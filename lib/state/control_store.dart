@@ -7,13 +7,16 @@ import 'dart:io';
 
 import 'package:control_core/control_core.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 
 import '../data/descriptions.dart';
 import '../data/focus.dart';
+import '../data/habits.dart';
 import '../data/local_store.dart';
 import '../data/password.dart';
 import '../platform/enforcement_channel.dart';
 import '../platform/platform_models.dart';
+import '../ui/expressive_progress.dart';
 import '../ui/theme.dart';
 
 /// Why a place check-in was or was not accepted.
@@ -32,18 +35,17 @@ enum CheckInResult {
   unknownCondition;
 
   String get message => switch (this) {
-        CheckInResult.success => 'Checked in. Apps unlocked for today.',
-        CheckInResult.outsideWindow =>
-          'Not during the window for this habit.',
-        CheckInResult.tooFar => 'Not close enough to the place yet.',
-        CheckInResult.fixTooVague =>
-          'The fix is too vague to prove you are there. Step outside and try '
-              'again in a moment.',
-        CheckInResult.noFix => 'No location fix yet. Try again in a moment.',
-        CheckInResult.noPermission => 'Control needs location access for this.',
-        CheckInResult.locationOff => 'Turn on location services first.',
-        CheckInResult.unknownCondition => 'That habit no longer exists.',
-      };
+    CheckInResult.success => 'Checked in. Apps unlocked for today.',
+    CheckInResult.outsideWindow => 'Not during the window for this habit.',
+    CheckInResult.tooFar => 'Not close enough to the place yet.',
+    CheckInResult.fixTooVague =>
+      'The fix is too vague to prove you are there. Step outside and try '
+          'again in a moment.',
+    CheckInResult.noFix => 'No location fix yet. Try again in a moment.',
+    CheckInResult.noPermission => 'Control needs location access for this.',
+    CheckInResult.locationOff => 'Turn on location services first.',
+    CheckInResult.unknownCondition => 'That habit no longer exists.',
+  };
 }
 
 /// Window the Insights screen is showing.
@@ -61,16 +63,16 @@ enum InsightsRange {
     final today = DateTime(now.year, now.month, now.day);
     return switch (this) {
       InsightsRange.day => today,
-      InsightsRange.week => today.subtract(const Duration(days: 6)),
-      InsightsRange.month => today.subtract(const Duration(days: 29)),
+      InsightsRange.week => DateTime(now.year, now.month, now.day - 6),
+      InsightsRange.month => DateTime(now.year, now.month, now.day - 29),
     };
   }
 
   int get days => switch (this) {
-        InsightsRange.day => 1,
-        InsightsRange.week => 7,
-        InsightsRange.month => 30,
-      };
+    InsightsRange.day => 1,
+    InsightsRange.week => 7,
+    InsightsRange.month => 30,
+  };
 }
 
 /// Holds the blocks, drives the engine, and keeps the native enforcer in sync.
@@ -79,15 +81,17 @@ class ControlStore extends ChangeNotifier {
     EnforcementChannel channel = const EnforcementChannel(),
     RuleEngine engine = const RuleEngine(),
     Directory? storageDirectory,
-  })  : _channel = channel,
-        _engine = engine,
-        _storageDirectory = storageDirectory;
+  }) : _channel = channel,
+       _engine = engine,
+       _storageDirectory = storageDirectory;
 
   final EnforcementChannel _channel;
   final RuleEngine _engine;
   final Directory? _storageDirectory;
   final LockPolicy _lockPolicy = const LockPolicy();
   final TamperResistantClock _clock = const TamperResistantClock();
+  DateTime? _timeAnchor;
+  final Stopwatch _timeElapsed = Stopwatch();
 
   /// Opened once. Every write goes through [_store] rather than a nullable
   /// field, so a save that happens while the app is still starting waits for
@@ -95,14 +99,15 @@ class ControlStore extends ChangeNotifier {
   Future<LocalStore>? _opening;
   LocalStore? _local;
 
-  Future<LocalStore> get _store =>
-      _opening ??= LocalStore.open(directory: _storageDirectory)
-          .then((store) => _local = store);
+  Future<LocalStore> get _store => _opening ??= LocalStore.open(
+    directory: _storageDirectory,
+  ).then((store) => _local = store);
 
   final List<Block> _blocks = [];
   List<Block> get blocks => List.unmodifiable(_blocks);
 
   Signals _signals = const Signals();
+  DateTime? _signalsDay;
   Signals get signals => _signals;
 
   EnforcementPlan? _plan;
@@ -113,13 +118,24 @@ class ControlStore extends ChangeNotifier {
   StepsStatus stepsStatus = const StepsStatus.unknown();
   LocationStatus locationStatus = const LocationStatus.unknown();
   ProtectionStatus protection = const ProtectionStatus.none();
+  NotificationStatus notifications = const NotificationStatus.unknown();
 
+  /// Today's usage only; shared by enforcement signals and outside summaries.
   UsageSnapshot usage = const UsageSnapshot.empty();
+  UsageSnapshot insightsUsage = const UsageSnapshot.empty();
+  bool insightsLoading = false;
+  String? insightsError;
+  DateTime? insightsUpdatedAt;
+  int _insightsGeneration = 0;
+  bool _disposed = false;
   InsightsRange insightsRange = InsightsRange.day;
   List<InstalledApp> installedApps = const [];
 
   EmergencyUnlocks emergencyUnlocks = const EmergencyUnlocks.fresh();
   AppThemeChoice theme = AppThemeChoice.system;
+
+  /// How the wave on progress bars moves.
+  WaveMotion waveMotion = WaveMotion.calm;
 
   /// Tamper guard: the accessibility service backs out of the screens used to
   /// uninstall or disable Control.
@@ -135,10 +151,8 @@ class ControlStore extends ChangeNotifier {
   /// what turns a preference into a commitment.
   Lock protectionLock = const Lock.none();
 
-  Duration? get protectionLockRemaining => _lockPolicy.remaining(
-        block: _protectionCarrier,
-        now: _now(),
-      );
+  Duration? get protectionLockRemaining =>
+      _lockPolicy.remaining(block: _protectionCarrier, now: _now());
 
   /// True while protection settings are held shut.
   bool get protectionLocked =>
@@ -153,18 +167,30 @@ class ControlStore extends ChangeNotifier {
   /// in a throwaway block keeps a single implementation of the lock rules
   /// rather than a second, subtly different copy.
   Block get _protectionCarrier => Block(
-        id: '__protection__',
-        name: 'App deletion blocked',
-        mode: LimitMode.time,
-        lock: protectionLock,
-      );
+    id: '__protection__',
+    name: 'App deletion blocked',
+    mode: LimitMode.time,
+    lock: protectionLock,
+  );
 
   final List<FocusSession> _focusSessions = [];
   List<FocusSession> get focusSessions => List.unmodifiable(_focusSessions);
 
-  /// Ticks once a second while a session runs, so the card and the timer sheet
-  /// stay live without polling anything else.
+  /// Ticks once a second while a session or a break counts, so the card and
+  /// the timer sheet stay live without polling anything else.
   Timer? _focusTicker;
+
+  /// A break between pomodoros, if one is running.
+  FocusBreak? focusBreak;
+
+  /// The session that just ended, until the next one starts or the result is
+  /// dismissed. Drives the timer sheet's done view.
+  FocusSession? lastFinishedFocus;
+
+  /// The block whose break just ran out, for the same reason.
+  String? breakOverFor;
+
+  bool _askedFocusNotifications = false;
 
   FocusSession? get runningFocus =>
       _focusSessions.where((session) => session.isRunning).firstOrNull;
@@ -181,10 +207,26 @@ class ControlStore extends ChangeNotifier {
   FocusStats focusStats({String? blockId}) =>
       FocusStats.from(_focusSessions, _now(), blockId: blockId);
 
+  /// The clock focus sessions are stamped with. Screens measure against it
+  /// too, so a timer never disagrees with the credit it is earning.
+  DateTime focusNow() => _now();
+
+  Duration focusLengthOf(FocusSession session) => session.lengthAt(_now());
+
   /// Blocks whose unlock is bought with focus time, which is what puts the
   /// timer and stats buttons on a card.
   static bool hasFocusCondition(Block block) =>
       block.conditions.any((condition) => condition is FocusCondition);
+
+  final List<Habit> _habits = [];
+  List<Habit> get habits => List.unmodifiable(_habits);
+
+  /// Habit id to [dayKey] to amount: units for a count, seconds for a timer.
+  final Map<String, Map<int, int>> _habitLog = {};
+
+  /// The timer habit being timed right now, if any. One at a time, like focus.
+  HabitTimer? habitTimer;
+  Timer? _habitTicker;
 
   /// True when the device clock has been wound back behind time this app has
   /// already seen. Surfaced rather than silently corrected: unexplained
@@ -209,33 +251,58 @@ class ControlStore extends ChangeNotifier {
     final known = _blocks.map((block) => block.id).toSet();
     _blocks.insertAll(0, stored.where((block) => !known.contains(block.id)));
 
-    _signals = _signals.copyWith(
-      grants: local.loadGrants(),
-      placeCheckIns: local.loadPlaceCheckIns(_now()),
-    );
+    _signals = _signals.copyWith(grants: local.loadGrants());
     emergencyUnlocks = local.loadEmergencyUnlocks();
     theme = AppThemeChoice.fromName(local.loadThemeChoice());
+    waveMotion = WaveMotion.fromName(local.loadWaveMotion());
     hardMode = local.loadHardMode();
-    weeklyReport = await _channel.weeklyReportEnabled();
     protectionLock = local.loadProtectionLock();
 
     _focusSessions
       ..clear()
       ..addAll(local.loadFocusSessions());
+
+    final knownHabits = _habits.map((habit) => habit.id).toSet();
+    _habits.insertAll(
+      0,
+      local.loadHabits().where((habit) => !knownHabits.contains(habit.id)),
+    );
+    for (final entry in local.loadHabitLog().entries) {
+      _habitLog.putIfAbsent(entry.key, () => entry.value);
+    }
+    habitTimer ??= local.loadHabitTimer();
+    if (habitTimer != null) _startHabitTicker();
+    // Hydrate persisted commitments before yielding: a concurrent add must not
+    // save a partial block or grant list over the loaded state.
+    await _refreshClock();
+    _signals = _signals.copyWith(
+      placeCheckIns: local.loadPlaceCheckIns(_now()),
+    );
+    weeklyReport = await _channel.weeklyReportEnabled();
     // A session that was running when the app died keeps running: the clock
-    // did not stop just because the process did.
-    if (runningFocus != null) _startTicker();
+    // did not stop just because the process did. A pomodoro that finished in
+    // the meantime is closed at its finish line.
+    final carried = runningFocus;
+    if (carried != null && carried.isComplete(_now())) {
+      lastFinishedFocus = _closeFocus(carried, _now());
+      await _persistFocus();
+    }
+    _updateTicker();
+    unawaited(_syncFocusNotification());
     await _channel.setHardMode(hardMode);
 
     notifyListeners();
     if (_blocks.length != stored.length) await _persistBlocks();
+    unawaited(_syncHabitReminders());
     await refreshAll();
   }
 
   /// Everything that can change while the app was in the background.
   Future<void> refreshAll() async {
+    await _refreshClock();
     await refreshPermissions();
     await refreshSignals();
+    await refreshInsights();
   }
 
   Future<void> refreshPermissions() async {
@@ -244,6 +311,11 @@ class ControlStore extends ChangeNotifier {
     stepsStatus = await _channel.stepsStatus();
     locationStatus = await _channel.locationStatus();
     protection = await _channel.protectionStatus();
+    try {
+      notifications = await _channel.notificationStatus();
+    } catch (error) {
+      debugPrint('control: could not read notification access: $error');
+    }
 
     // The guard keeps its own copy of the flag so it works with this isolate
     // dead. If the two ever disagree, the stored setting is the user's intent
@@ -269,13 +341,21 @@ class ControlStore extends ChangeNotifier {
     final todayUsage = usageAccessGranted
         ? await _channel.usageSnapshot(
             start: today,
-            end: today.add(const Duration(days: 1)),
+            end: DateTime(now.year, now.month, now.day + 1),
           )
         : const UsageSnapshot.empty();
 
-    usage = insightsRange == InsightsRange.day
-        ? todayUsage
-        : await _rangeUsage(insightsRange, now);
+    // Insights and the widget describe the wall-calendar day. A protection
+    // clock may intentionally differ after a clock edit; don't feed that
+    // display-only adjustment back into habit measurements.
+    final wallNow = DateTime.now();
+    final wallToday = DateTime(wallNow.year, wallNow.month, wallNow.day);
+    usage = usageAccessGranted && wallToday != today
+        ? await _channel.usageSnapshot(
+            start: wallToday,
+            end: DateTime(wallNow.year, wallNow.month, wallNow.day + 1),
+          )
+        : todayUsage;
 
     final steps = stepsStatus.usable ? await _channel.stepsToday() : 0;
     final shortcuts = await _channel.shortcutCounts();
@@ -290,29 +370,64 @@ class ControlStore extends ChangeNotifier {
       // even if the app was never closed.
       placeCheckIns: local.loadPlaceCheckIns(now),
     );
+    _signalsDay = today;
 
     notifyListeners();
-    await publish(at: now);
+    await publish();
   }
 
   Future<void> setInsightsRange(InsightsRange range) async {
     if (range == insightsRange) return;
     insightsRange = range;
-    notifyListeners();
-
-    final now = _now();
-    usage = range == InsightsRange.day
-        ? await _channel.usageSnapshot(
-            start: range.startFrom(now),
-            end: now,
-          )
-        : await _rangeUsage(range, now);
-    notifyListeners();
+    insightsUsage = const UsageSnapshot.empty();
+    insightsUpdatedAt = null;
+    await refreshInsights();
   }
 
-  Future<UsageSnapshot> _rangeUsage(InsightsRange range, DateTime now) async {
-    if (!usageAccessGranted) return const UsageSnapshot.empty();
-    return _channel.usageSnapshot(start: range.startFrom(now), end: now);
+  Future<void> refreshInsights() async {
+    if (_disposed) return;
+    final generation = ++_insightsGeneration;
+    final range = insightsRange;
+    insightsError = null;
+    if (!usageAccessGranted) {
+      insightsUsage = const UsageSnapshot.empty();
+      insightsUpdatedAt = null;
+      insightsLoading = false;
+      insightsError = 'Grant usage access to see screen time.';
+      notifyListeners();
+      return;
+    }
+
+    insightsLoading = true;
+    notifyListeners();
+    try {
+      // Android event timestamps follow wall time, not the protection clock.
+      final now = DateTime.now();
+      final snapshot = await _channel.usageTimeline(
+        start: range.startFrom(now),
+        end: now,
+        bucket: range == InsightsRange.day ? 'hour' : 'day',
+      );
+      if (_disposed || generation != _insightsGeneration) return;
+      insightsUsage = snapshot;
+      insightsUpdatedAt = DateTime.now();
+    } catch (error) {
+      if (_disposed || generation != _insightsGeneration) return;
+      insightsUsage = const UsageSnapshot.empty();
+      insightsUpdatedAt = null;
+      if (error is PlatformException && error.code == 'permission_denied') {
+        usageAccessGranted = false;
+        insightsError = 'Grant usage access to see screen time.';
+      } else {
+        insightsError = 'Could not load screen time. Please try again.';
+        debugPrint('control: could not load usage history: $error');
+      }
+    } finally {
+      if (!_disposed && generation == _insightsGeneration) {
+        insightsLoading = false;
+        notifyListeners();
+      }
+    }
   }
 
   Future<void> loadInstalledApps() async {
@@ -364,11 +479,14 @@ class ControlStore extends ChangeNotifier {
       before.enabled == after.enabled &&
       after.apps.containsAll(before.apps) &&
       after.blockedDomains.containsAll(before.blockedDomains) &&
-      setEquals(before.categories, after.categories) &&
+      after.categories.containsAll(before.categories) &&
+      before.excludedApps.containsAll(after.excludedApps) &&
       before.blockAgainAfter == after.blockAgainAfter &&
       before.schedulePolarity == after.schedulePolarity &&
       before.zonePolarity == after.zonePolarity &&
       before.devicePolarity == after.devicePolarity &&
+      before.zone == after.zone &&
+      listEquals(before.devices, after.devices) &&
       listEquals(
         before.schedule.map(_rangeKey).toList(),
         after.schedule.map(_rangeKey).toList(),
@@ -382,20 +500,21 @@ class ControlStore extends ChangeNotifier {
       '${range.startMinute}-${range.endMinute}-'
       '${(range.weekdays.toList()..sort()).join(',')}';
 
-  static String _conditionKey(UnlockCondition condition) =>
-      switch (condition) {
-        StepsCondition() => 'steps:${condition.targetSteps}',
-        WorkoutCondition() => 'workout:${condition.target.inSeconds}',
-        MeditateCondition() => 'meditate:${condition.target.inSeconds}',
-        AppTimeCondition() => 'appTime:${condition.target.inSeconds}:'
-            '${(condition.apps.toList()..sort()).join(',')}',
-        FocusCondition() => 'focus:${condition.target.inSeconds}',
-        PlaceCheckInCondition() => 'place:${condition.zone.center.latitude}:'
-            '${condition.zone.center.longitude}:${condition.zone.radiusMeters}:'
-            '${condition.window.startMinute}-${condition.window.endMinute}',
-        ShortcutCondition() =>
-          'shortcut:${condition.channel}:${condition.requiredCount}',
-      };
+  static String _conditionKey(UnlockCondition condition) => switch (condition) {
+    StepsCondition() => 'steps:${condition.targetSteps}',
+    WorkoutCondition() => 'workout:${condition.target.inSeconds}',
+    MeditateCondition() => 'meditate:${condition.target.inSeconds}',
+    AppTimeCondition() =>
+      'appTime:${condition.target.inSeconds}:'
+          '${(condition.apps.toList()..sort()).join(',')}',
+    FocusCondition() => 'focus:${condition.target.inSeconds}',
+    PlaceCheckInCondition() =>
+      'place:${condition.zone.center.latitude}:'
+          '${condition.zone.center.longitude}:${condition.zone.radiusMeters}:'
+          '${_rangeKey(condition.window)}',
+    ShortcutCondition() =>
+      'shortcut:${condition.channel}:${condition.requiredCount}',
+  };
 
   /// Deleting is a weakening change, so a locked block refuses it.
   Future<LockVerdict> removeBlock(String id) async {
@@ -438,15 +557,16 @@ class ControlStore extends ChangeNotifier {
 
   // Locks --------------------------------------------------------------------
 
-  /// Arms a lock. Always permitted: locking is a strengthening change, and a
-  /// lock you cannot apply because of an existing lock would be absurd.
+  /// Arms an unlocked block. An existing lock must be released first; replacing
+  /// it with a shorter deadline or a known password would weaken protection.
   Future<void> lockBlock(
     String id, {
     Duration? duration,
     String? password,
   }) async {
     final block = blockById(id);
-    if (block == null) return;
+    if (block == null || isLocked(block)) return;
+    if (duration != null && duration <= Duration.zero) return;
 
     final lock = duration != null
         ? Lock.timed(
@@ -514,6 +634,10 @@ class ControlStore extends ChangeNotifier {
       LockVerdict.allowed;
 
   // Focus timer --------------------------------------------------------------
+  //
+  // Every method changes memory and notifies before its first await, so a
+  // button can act and a sheet can move on at once; the file write, the
+  // notification and the enforcement publish follow on their own.
 
   /// Starts a session. Only one runs at a time: two timers counting the same
   /// minutes would be a way to buy an unlock twice over.
@@ -522,7 +646,11 @@ class ControlStore extends ChangeNotifier {
     required FocusKind kind,
     Duration? plannedWork,
   }) async {
-    if (runningFocus != null) await stopFocus();
+    final previous = runningFocus;
+    if (previous != null) _closeFocus(previous, _now());
+    focusBreak = null;
+    breakOverFor = null;
+    lastFinishedFocus = null;
 
     _focusSessions.add(
       FocusSession(
@@ -534,37 +662,186 @@ class ControlStore extends ChangeNotifier {
             : null,
       ),
     );
-    _startTicker();
+    _updateTicker();
+    if (!_askedFocusNotifications) {
+      _askedFocusNotifications = true;
+      _askForNotifications();
+    }
+    notifyListeners();
     await _persistFocus();
+    await _syncFocusNotification();
     await publish();
   }
 
+  /// Holds the running session. Paused time is not credited.
+  Future<void> pauseFocus() async {
+    final running = runningFocus;
+    if (running == null || running.isPaused) return;
+    _replaceFocus(running, running.pausedAt(_now()));
+    _updateTicker();
+    notifyListeners();
+    await _persistFocus();
+    await _syncFocusNotification();
+  }
+
+  Future<void> resumeFocus() async {
+    final running = runningFocus;
+    if (running == null || !running.isPaused) return;
+    _replaceFocus(running, running.resumedAt(_now()));
+    _updateTicker();
+    notifyListeners();
+    await _persistFocus();
+    await _syncFocusNotification();
+  }
+
+  /// Ends the running session and keeps it as the one just finished, so the
+  /// timer sheet can show what was banked.
   Future<void> stopFocus() async {
     final running = runningFocus;
     if (running == null) return;
-
-    final index = _focusSessions.indexOf(running);
-    _focusSessions[index] = running.stoppedAt(_now());
-    _stopTicker();
-
+    lastFinishedFocus = _closeFocus(running, _now());
+    notifyListeners();
     await _persistFocus();
+    await _syncFocusNotification();
     // The finished minutes may have just bought an unlock.
     await refreshSignals();
   }
 
-  void _startTicker() {
-    _focusTicker?.cancel();
-    _focusTicker = Timer.periodic(const Duration(seconds: 1), (_) {
-      final running = runningFocus;
-      if (running == null) {
-        _stopTicker();
-        return;
-      }
-      notifyListeners();
+  /// Pomodoros finished today, across blocks. Every fourth earns a long break.
+  int get pomodorosToday {
+    final now = _now();
+    final today = DateTime(now.year, now.month, now.day);
+    return _focusSessions
+        .where(
+          (session) =>
+              session.kind == FocusKind.pomodoro &&
+              !session.isRunning &&
+              session.isComplete(now) &&
+              !session.startedAt.isBefore(today),
+        )
+        .length;
+  }
+
+  /// Five minutes, or fifteen after every fourth pomodoro of the day.
+  Duration get nextBreakLength {
+    final done = pomodorosToday;
+    return done > 0 && done % 4 == 0
+        ? const Duration(minutes: 15)
+        : const Duration(minutes: 5);
+  }
+
+  Future<void> startBreak() async {
+    final blockId = lastFinishedFocus?.blockId ?? runningFocus?.blockId;
+    if (blockId == null) return;
+    focusBreak = FocusBreak(
+      blockId: blockId,
+      startedAt: _now(),
+      length: nextBreakLength,
+    );
+    lastFinishedFocus = null;
+    breakOverFor = null;
+    _updateTicker();
+    notifyListeners();
+    await _syncFocusNotification();
+  }
+
+  Future<void> skipBreak() async {
+    focusBreak = null;
+    dismissFocusResult();
+    _updateTicker();
+    await _syncFocusNotification();
+  }
+
+  /// Clears the finished-session and break-over messages.
+  void dismissFocusResult() {
+    lastFinishedFocus = null;
+    breakOverFor = null;
+    notifyListeners();
+  }
+
+  FocusSession _closeFocus(FocusSession running, DateTime now) {
+    // A pomodoro that finished while nobody was watching closes at its finish
+    // line, so its minutes land on the day they were actually worked.
+    final closed = running.stoppedAt(running.completedAt(now) ?? now);
+    _replaceFocus(running, closed);
+    _updateTicker();
+    return closed;
+  }
+
+  void _replaceFocus(FocusSession before, FocusSession after) {
+    final index = _focusSessions.indexOf(before);
+    if (index >= 0) _focusSessions[index] = after;
+  }
+
+  /// Ticks while something is counting: a session that is not paused, or a
+  /// break. A paused session has nothing to redraw.
+  void _updateTicker() {
+    final running = runningFocus;
+    final needed =
+        (running != null && !running.isPaused) || focusBreak != null;
+    if (!needed) {
+      _stopTicker();
+      return;
+    }
+    _focusTicker ??= Timer.periodic(const Duration(seconds: 1), (_) => _tick());
+  }
+
+  void _tick() {
+    final now = _now();
+    final running = runningFocus;
+    if (running != null && running.isComplete(now)) {
       // A pomodoro closes itself the moment it has served its time, so the
       // reward does not depend on the user being there to press stop.
-      if (running.isComplete(_now())) unawaited(stopFocus());
-    });
+      unawaited(_completePomodoro(running, now));
+      return;
+    }
+    if (running != null && _crossedFocusTarget()) {
+      // Unlock the moment the goal is met, not when stop is finally pressed.
+      unawaited(_publishFocusProgress());
+    }
+    final pause = focusBreak;
+    if (pause != null && pause.isOver(now)) {
+      focusBreak = null;
+      breakOverFor = pause.blockId;
+      _updateTicker();
+      unawaited(HapticFeedback.heavyImpact());
+      unawaited(_finishFocusNotification());
+    }
+    notifyListeners();
+  }
+
+  Future<void> _completePomodoro(FocusSession running, DateTime now) async {
+    final closed = _closeFocus(running, now);
+    lastFinishedFocus = closed;
+    unawaited(HapticFeedback.heavyImpact());
+    notifyListeners();
+    // Android may have announced it already, from the foreground service or
+    // its alarm; this announces it only if not, and takes the timer down.
+    await _finishFocusNotification();
+    await _persistFocus();
+    await refreshSignals();
+  }
+
+  /// Focus totals already handed to the engine, for spotting a goal crossed
+  /// mid-session.
+  Duration _publishedFocus = Duration.zero;
+
+  bool _crossedFocusTarget() {
+    final today = focusToday;
+    return _blocks.any(
+      (block) =>
+          block.enabled &&
+          block.conditions.whereType<FocusCondition>().any(
+            (condition) =>
+                _publishedFocus < condition.target && today >= condition.target,
+          ),
+    );
+  }
+
+  Future<void> _publishFocusProgress() async {
+    _publishedFocus = focusToday;
+    _signals = _signals.copyWith(focusToday: _publishedFocus);
+    await publish();
   }
 
   void _stopTicker() {
@@ -573,26 +850,325 @@ class ControlStore extends ChangeNotifier {
   }
 
   Future<void> _persistFocus() async {
-    _signals = _signals.copyWith(focusToday: focusToday);
+    _publishedFocus = focusToday;
+    _signals = _signals.copyWith(focusToday: _publishedFocus);
     notifyListeners();
     final local = await _store;
     await local.saveFocusSessions(_focusSessions, _now());
   }
 
+  /// Mirrors the timer into Android: a foreground service with a clock Android
+  /// runs itself, counting down for a pomodoro or a break and up for a
+  /// stopwatch, and the words for announcing the end, so the end is announced
+  /// on time whether or not this isolate is still alive.
+  Future<void> _syncFocusNotification() async {
+    final running = runningFocus;
+    final pause = focusBreak;
+    final now = _now();
+    // The notification clock is the wall clock, whatever the protection clock
+    // says; only the remaining span comes from the session.
+    final wall = DateTime.now();
+    try {
+      if (running != null) {
+        final name = blockById(running.blockId)?.name ?? 'Focus';
+        final length = running.lengthAt(now);
+        final remaining = running.remainingAt(now);
+        if (running.isPaused) {
+          await _channel.showFocusTimer(
+            title: 'Paused: $name',
+            text: '${formatClock(length)} focused so far. Open to resume.',
+          );
+        } else if (remaining != null) {
+          await _channel.showFocusTimer(
+            title: name,
+            text: 'Pomodoro, ${formatDuration(running.plannedWork!)}',
+            clockAt: wall.add(remaining),
+            countDown: true,
+            endsAt: wall.add(remaining),
+            doneTitle: 'Pomodoro done',
+            doneText:
+                '${formatDuration(running.plannedWork!)} banked for $name. '
+                'Time for a break.',
+          );
+        } else {
+          await _channel.showFocusTimer(
+            title: name,
+            text: 'Stopwatch',
+            clockAt: wall.subtract(length),
+          );
+        }
+      } else if (pause != null) {
+        final name = blockById(pause.blockId)?.name ?? 'focus';
+        final ends = wall.add(pause.remainingAt(now));
+        await _channel.showFocusTimer(
+          title: 'Break',
+          text: 'Back to $name after.',
+          clockAt: ends,
+          countDown: true,
+          endsAt: ends,
+          doneTitle: 'Break over',
+          doneText: 'Ready for the next $name session.',
+        );
+      } else {
+        await _channel.cancelFocusTimer();
+      }
+    } catch (error) {
+      debugPrint('control: could not update the focus notification: $error');
+    }
+  }
+
+  Future<void> _finishFocusNotification() async {
+    try {
+      await _channel.finishFocusTimer();
+    } catch (error) {
+      debugPrint('control: could not finish the focus notification: $error');
+    }
+  }
+
   @override
   void dispose() {
+    _disposed = true;
+    _insightsGeneration++;
     _stopTicker();
+    _habitTicker?.cancel();
     super.dispose();
+  }
+
+  // Habits -------------------------------------------------------------------
+  //
+  // Habits run on the wall clock, not the protection clock. They are
+  // self-reported and unlock nothing, so there is nothing to defend, and the
+  // day someone ticks off has to be the day on their calendar.
+
+  /// The wall clock habits are logged against. Overridable so previews and
+  /// tests can stand on a fixed day.
+  DateTime wallNow() => DateTime.now();
+
+  Habit? habitById(String id) =>
+      habits.where((habit) => habit.id == id).firstOrNull;
+
+  /// The stored log for a habit, with a running timer's seconds folded in so
+  /// every screen shows the live total.
+  Map<int, int> habitLogFor(String id, {DateTime? now}) {
+    final log = {...?_habitLog[id]};
+    final timer = habitTimer;
+    if (timer != null && timer.habitId == id) {
+      for (final entry in timer.secondsByDay(now ?? wallNow()).entries) {
+        log[entry.key] = (log[entry.key] ?? 0) + entry.value;
+      }
+    }
+    return log;
+  }
+
+  HabitStats habitStats(Habit habit, {DateTime? now}) {
+    final moment = now ?? wallNow();
+    return HabitStats.of(habit, habitLogFor(habit.id, now: moment), moment);
+  }
+
+  /// Days any habit was done. The rank ladder climbs on these.
+  int get habitPoints =>
+      habits.fold(0, (total, habit) => total + habitStats(habit).totalDone);
+
+  /// How many of the habits due on [day] are done. A habit done on a day off
+  /// counts on both sides, so extra credit never reads as a shortfall.
+  ({int done, int due}) habitProgressOn(DateTime day) {
+    var done = 0;
+    var due = 0;
+    for (final habit in habits) {
+      final isDone = habitStats(habit).isDoneOn(day);
+      if (!habit.isDueOn(day) && !isDone) continue;
+      due++;
+      if (isDone) done++;
+    }
+    return (done: done, due: due);
+  }
+
+  Future<void> addHabit(Habit habit) async {
+    _habits.add(habit);
+    if (habit.reminders.isNotEmpty) _askForNotifications();
+    await _persistHabits();
+  }
+
+  /// Every change lands in memory before the first await, so a sheet can
+  /// close the moment it calls this; the file write follows on its own.
+  Future<void> updateHabit(Habit updated) async {
+    final index = _habits.indexWhere((habit) => habit.id == updated.id);
+    if (index < 0) return;
+    final previous = _habits[index];
+    if (previous.reminders.isEmpty && updated.reminders.isNotEmpty) {
+      _askForNotifications();
+    }
+    // A habit switched away from timing cannot keep a timer running. Stopped
+    // before the switch, so the run is banked in the unit it was measured in.
+    final stopping =
+        updated.kind != HabitKind.timer && habitTimer?.habitId == updated.id
+        ? stopHabitTimer()
+        : null;
+    _habits[index] = updated;
+
+    // Seconds do not mean glasses. When the measure changes, the days that
+    // were done stay done and the partial ones are let go, so streaks survive
+    // the edit without inventing progress.
+    final log = _habitLog[updated.id];
+    final remapped = previous.kind != updated.kind && log != null;
+    if (remapped) {
+      log
+        ..updateAll((_, amount) => amount >= previous.goal ? updated.goal : 0)
+        ..removeWhere((_, amount) => amount <= 0);
+    }
+    notifyListeners();
+
+    await stopping;
+    if (remapped) {
+      final local = await _store;
+      await local.saveHabitLog(_habitLog);
+    }
+    await _persistHabits();
+  }
+
+  Future<void> removeHabit(String id) async {
+    final hadTimer = habitTimer?.habitId == id;
+    if (hadTimer) {
+      habitTimer = null;
+      _habitTicker?.cancel();
+      _habitTicker = null;
+    }
+    _habits.removeWhere((habit) => habit.id == id);
+    _habitLog.remove(id);
+    notifyListeners();
+
+    if (hadTimer) {
+      final local = await _store;
+      await local.saveHabitTimer(null);
+    }
+    await _persistHabits();
+    await _persistHabitLog();
+  }
+
+  /// Sets the stored amount for [day]. Never below zero.
+  Future<void> setHabitAmount(String id, DateTime day, int amount) async {
+    if (habitById(id) == null) return;
+    final log = _habitLog.putIfAbsent(id, () => {});
+    if (amount <= 0) {
+      log.remove(dayKey(day));
+    } else {
+      log[dayKey(day)] = amount;
+    }
+    await _persistHabitLog();
+  }
+
+  Future<void> addHabitAmount(String id, DateTime day, int delta) {
+    final current = _habitLog[id]?[dayKey(day)] ?? 0;
+    return setHabitAmount(id, day, current + delta);
+  }
+
+  /// Done becomes not done, and anything short of done becomes done.
+  Future<void> toggleHabit(String id, DateTime day) {
+    final habit = habitById(id);
+    if (habit == null) return Future.value();
+    final done = habitStats(habit).isDoneOn(day);
+    return setHabitAmount(id, day, done ? 0 : habit.goal);
+  }
+
+  Future<void> startHabitTimer(String id) async {
+    final stopping = habitTimer == null ? null : stopHabitTimer();
+    habitTimer = HabitTimer(habitId: id, startedAt: wallNow());
+    _startHabitTicker();
+    notifyListeners();
+    await stopping;
+    final local = await _store;
+    await local.saveHabitTimer(habitTimer);
+  }
+
+  /// Banks the run into the log, split across midnight if it crossed one.
+  Future<void> stopHabitTimer() async {
+    final timer = habitTimer;
+    if (timer == null) return;
+    habitTimer = null;
+    _habitTicker?.cancel();
+    _habitTicker = null;
+
+    final log = _habitLog.putIfAbsent(timer.habitId, () => {});
+    for (final entry in timer.secondsByDay(wallNow()).entries) {
+      log[entry.key] = (log[entry.key] ?? 0) + entry.value;
+    }
+    final local = await _store;
+    await local.saveHabitTimer(null);
+    await _persistHabitLog();
+  }
+
+  void _startHabitTicker() {
+    _habitTicker?.cancel();
+    _habitTicker = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (habitTimer == null) {
+        _habitTicker?.cancel();
+        _habitTicker = null;
+        return;
+      }
+      notifyListeners();
+    });
+  }
+
+  void _askForNotifications() => unawaited(
+    _channel.requestNotificationPermission().catchError((Object error) {
+      debugPrint('control: could not ask for notifications: $error');
+    }),
+  );
+
+  Future<void> _persistHabits() async {
+    notifyListeners();
+    final local = await _store;
+    await local.saveHabits(_habits);
+    await _syncHabitReminders();
+  }
+
+  Future<void> _persistHabitLog() async {
+    notifyListeners();
+    final local = await _store;
+    await local.saveHabitLog(_habitLog);
+    await _syncHabitReminders();
+  }
+
+  /// Hands every reminder to Android, which owns the alarms.
+  ///
+  /// Like the widget summary, a failure here is logged and swallowed: a
+  /// reminder that could not be scheduled must never undo the tick that
+  /// triggered the sync.
+  Future<void> _syncHabitReminders() async {
+    final today = wallNow();
+    try {
+      await _channel.setHabitReminders([
+        for (final habit in _habits)
+          for (final minute in habit.reminders)
+            {
+              'id': '${habit.id}@$minute',
+              'habitId': habit.id,
+              'title': habit.name,
+              'body': habit.description.trim().isNotEmpty
+                  ? habit.description.trim()
+                  : habit.kind == HabitKind.check
+                  ? 'A small step still counts.'
+                  : '${habit.goalLabel} today.',
+              'minute': minute,
+              'weekdays': habit.weekdays.toList()..sort(),
+              'doneDay': habitStats(habit, now: today).isDoneOn(today)
+                  ? dayKey(today)
+                  : 0,
+            },
+      ]);
+    } catch (error) {
+      debugPrint('control: could not schedule habit reminders: $error');
+    }
   }
 
   // Place check-ins ----------------------------------------------------------
 
   /// Every place condition on every enabled block, with the block it came from.
   List<(Block, PlaceCheckInCondition)> placeConditions() => [
-        for (final block in _blocks)
-          for (final condition in block.conditions)
-            if (condition is PlaceCheckInCondition) (block, condition),
-      ];
+    for (final block in _blocks)
+      for (final condition in block.conditions)
+        if (condition is PlaceCheckInCondition) (block, condition),
+  ];
 
   bool isCheckedIn(PlaceCheckInCondition condition) =>
       _signals.placeCheckIns.contains(condition.id);
@@ -621,8 +1197,7 @@ class ControlStore extends ChangeNotifier {
     // The condition decides, not this method: the same rule has to hold
     // wherever it is asked.
     if (!condition.canCheckIn(reading, now)) {
-      final distance =
-          condition.zone.center.distanceTo(reading.point).round();
+      final distance = condition.zone.center.distanceTo(reading.point).round();
       return distance > condition.zone.radiusMeters
           ? CheckInResult.tooFar
           : CheckInResult.fixTooVague;
@@ -649,11 +1224,11 @@ class ControlStore extends ChangeNotifier {
   /// Hard mode makes the accessibility service back out of the settings screens
   /// that lead to uninstalling or disabling Control.
   ///
-  /// Turning it off is refused while a timed lock is running, for the same
+  /// Turning it off is refused while any lock is active, for the same
   /// reason releasing device admin is: it is the first step of getting rid of
   /// the block.
   Future<bool> setHardMode(bool enabled) async {
-    if (!enabled && (protectionLocked || _hasLiveTimedLock())) return false;
+    if (!enabled && (protectionLocked || _hasLiveLock())) return false;
 
     hardMode = enabled;
     notifyListeners();
@@ -663,12 +1238,7 @@ class ControlStore extends ChangeNotifier {
     return true;
   }
 
-  bool _hasLiveTimedLock() {
-    final now = _now();
-    return _blocks.any(
-      (block) => block.lock.kind == LockKind.timed && !block.lock.isExpired(now),
-    );
-  }
+  bool _hasLiveLock() => _blocks.any(isLocked);
 
   Future<DeviceOwnerStatus> deviceOwnerStatus() => _channel.deviceOwnerStatus();
 
@@ -677,15 +1247,16 @@ class ControlStore extends ChangeNotifier {
   }
 
   Future<void> setUninstallBlocked(bool blocked) async {
+    if (!blocked && (protectionLocked || _hasLiveLock())) return;
     await _channel.setUninstallBlocked(blocked);
     await refreshPermissions();
   }
 
-  /// Refuses while any block is still under a timed lock. Releasing protection
+  /// Refuses while any block is still locked. Releasing protection
   /// is the first step of uninstalling, which would clear every block: allowing
   /// it here would make the timed lock decorative.
   Future<bool> releaseProtection() async {
-    if (protectionLocked || _hasLiveTimedLock()) return false;
+    if (protectionLocked || _hasLiveLock()) return false;
 
     await _channel.releaseProtection();
     await refreshPermissions();
@@ -696,6 +1267,8 @@ class ControlStore extends ChangeNotifier {
   /// time, if it is not already: locking an unarmed setting would be a promise
   /// with nothing behind it.
   Future<void> lockProtection({Duration? duration, String? password}) async {
+    if (protectionLocked) return;
+    if (duration != null && duration <= Duration.zero) return;
     protectionLock = duration != null
         ? Lock.timed(
             until: _now().add(duration),
@@ -757,7 +1330,20 @@ class ControlStore extends ChangeNotifier {
     await local.saveThemeChoice(choice.name);
   }
 
+  Future<void> setWaveMotion(WaveMotion motion) async {
+    waveMotion = motion;
+    notifyListeners();
+    final local = await _store;
+    await local.saveWaveMotion(motion.name);
+  }
+
   Future<void> requestStepsPermission() => _channel.requestStepsPermission();
+
+  /// The Settings row: prompt if Android still will, otherwise open the app's
+  /// notification settings. Read back on the next resume.
+  Future<void> fixNotifications() => _channel.fixNotifications();
+
+  Future<void> openExactAlarmSettings() => _channel.openExactAlarmSettings();
 
   Future<int> fireShortcut(String channel) async {
     final count = await _channel.fireShortcut(channel);
@@ -778,6 +1364,21 @@ class ControlStore extends ChangeNotifier {
   /// grant exists, and the grant is what starts the re-arm clock.
   Future<void> publish({DateTime? at}) async {
     final now = at ?? _now();
+    final today = DateTime(now.year, now.month, now.day);
+    if (_signalsDay != today) {
+      // Edits can publish without reading sensors. Yesterday's daily totals
+      // must never mint today's allowance while those measurements are stale.
+      _signals = _signals.copyWith(
+        stepsToday: 0,
+        workoutToday: Duration.zero,
+        mindfulToday: Duration.zero,
+        focusToday: Duration.zero,
+        appUsageToday: {},
+        placeCheckIns: {},
+        shortcutCounts: {},
+      );
+      _signalsDay = today;
+    }
 
     final grants = Map<String, UnlockGrant>.from(_signals.grants);
     for (final block in _blocks) {
@@ -788,13 +1389,24 @@ class ControlStore extends ChangeNotifier {
       );
       if (grant != null) grants[block.id] = grant;
     }
-    grants.removeWhere((_, grant) => !grant.isActive(now));
+    // Retain today's spent grants across restart so reopening Control cannot
+    // mint another reward from the same cumulative habit measurements.
+    grants.removeWhere(
+      (id, grant) =>
+          blockById(id) == null ||
+          (!grant.isActive(now) && grant.grantedAt.isBefore(today)),
+    );
     _signals = _signals.copyWith(grants: grants);
 
     final plan = _engine.plan(blocks: _blocks, signals: _signals, now: now);
     _plan = plan;
 
-    await _channel.applyPlan(plan, details: _detailsFor(plan));
+    await _channel.applyPlan(
+      plan,
+      details: _detailsFor(plan),
+      blocks: _blocks,
+      grants: grants,
+    );
     await _pushSummary(plan);
     notifyListeners();
 
@@ -846,22 +1458,27 @@ class ControlStore extends ChangeNotifier {
     await _channel.setWeeklyReport(enabled);
   }
 
-  /// Time that only moves forward.
-  ///
-  /// The monotonic-uptime anchor is not wired up yet, so this is the system
-  /// clock floored by the latest time already observed: enough to stop a lock
-  /// being skipped by winding the date back, not yet enough to survive a reboot
-  /// plus a clock change in the same sitting.
+  Future<void> _refreshClock() async {
+    final native = await _channel.enforcementTime();
+    _timeAnchor = native ?? _now();
+    _timeElapsed
+      ..reset()
+      ..start();
+  }
+
+  /// Share Android's persisted uptime anchor; wall-clock edits must not expire
+  /// a lock in Flutter while native enforcement still considers it active.
   DateTime _now() {
     final systemNow = DateTime.now();
     final local = _local;
     if (local == null) return systemNow;
 
     final resolved = _clock.resolve(
-      systemNow: systemNow,
+      systemNow: _timeAnchor?.add(_timeElapsed.elapsed) ?? systemNow,
       highWaterMark: local.loadClockHighWaterMark(),
     );
-    clockTampered = _clock.detectsRollback(systemNow, resolved);
+    clockTampered =
+        systemNow.difference(resolved).abs() > const Duration(minutes: 2);
     local.noteClockHighWaterMark(resolved);
     return resolved;
   }
@@ -927,8 +1544,7 @@ class ControlStore extends ChangeNotifier {
           'Control cannot read the signal this block needs, so it stays on.',
         BlockReason.disabled ||
         BlockReason.noTargets ||
-        BlockReason.grantActive =>
-          'Blocked right now.',
+        BlockReason.grantActive => 'Blocked right now.',
       };
 
   String _scheduleStatus(BlockDecision decision) {
@@ -942,12 +1558,12 @@ class ControlStore extends ChangeNotifier {
   }
 
   static String _weekdayName(DateTime moment) => const [
-        'Monday',
-        'Tuesday',
-        'Wednesday',
-        'Thursday',
-        'Friday',
-        'Saturday',
-        'Sunday',
-      ][moment.weekday - 1];
+    'Monday',
+    'Tuesday',
+    'Wednesday',
+    'Thursday',
+    'Friday',
+    'Saturday',
+    'Sunday',
+  ][moment.weekday - 1];
 }

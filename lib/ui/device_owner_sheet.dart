@@ -95,27 +95,15 @@ class _DeviceOwnerSheetState extends State<DeviceOwnerSheet> {
     );
   }
 
-  Widget _header() => Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 4),
-        child: Row(
-          children: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Close'),
-            ),
-            const Spacer(),
-            const Text(
-              'Locked tier',
-              style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
-            ),
-            const Spacer(),
-            TextButton(
-              onPressed: _checking ? null : _check,
-              child: const Text('Recheck'),
-            ),
-          ],
-        ),
-      );
+  Widget _header() => SheetHeader(
+    title: 'Locked tier',
+    leading: SheetAction('Close', onPressed: () => Navigator.pop(context)),
+    trailing: SheetAction(
+      'Recheck',
+      primary: true,
+      onPressed: _checking ? null : _check,
+    ),
+  );
 
   // Already provisioned -------------------------------------------------------
 

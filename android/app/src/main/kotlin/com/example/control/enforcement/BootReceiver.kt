@@ -4,41 +4,44 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.util.Log
+import com.example.control.surface.HabitReminders
+import com.example.control.surface.WeeklyReport
 
 /**
- * Re-asserts enforcement after a restart.
- *
- * Most of it survives a reboot on its own: Android restarts enabled
- * accessibility services, and the plan, the hard-mode flag and every lock are
- * on disk. What does not survive is the arithmetic. A plan computed yesterday
- * still names the apps that were blocked yesterday, so a schedule that should
- * have flipped overnight stays wrong until the app is next opened.
- *
- * Until a wake-up alarm exists, the honest fix is to keep enforcing the last
- * plan rather than dropping it, and to mark it stale so the next launch
- * recomputes immediately. Dropping the shield on a reboot would make a restart
- * the easiest bypass in the app.
+ * Restores inputs without starting Flutter. Android rebinds enabled accessibility
+ * services itself; apps cannot force that binding or enable a disabled service.
  */
 class BootReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action != Intent.ACTION_BOOT_COMPLETED &&
-            intent.action != Intent.ACTION_MY_PACKAGE_REPLACED
-        ) {
-            return
-        }
+        if (!handles(intent.action)) return
 
-        val plan = PlanStore(context).read()
-        Log.i(
-            TAG,
-            "restored plan after ${intent.action}: " +
-                "${plan.blockedPackages.size} apps, " +
-                "${plan.blockedDomains.size} sites, " +
-                "hard mode ${TamperGuard(context).enabled}",
-        )
+        // Warm/migrate the persisted inputs; native rules evaluate current time
+        // when the service connects, not the old flattened package snapshot.
+        runCatching {
+            val plan = PlanStore(context).read()
+            TamperGuard(context).enabled
+            EnforcementClock.now(context)
+            Log.i(TAG, "loaded ${plan.rules?.size ?: 0} native rules after ${intent.action}")
+        }.onFailure { Log.e(TAG, "Could not restore enforcement inputs", it) }
+
+        // Reminders and the weekly report live in credential-protected
+        // storage, which is still shut at locked boot; the unlocked boot that
+        // follows puts them back. Android drops every alarm on reboot.
+        if (intent.action != Intent.ACTION_LOCKED_BOOT_COMPLETED) {
+            runCatching {
+                HabitReminders.rescheduleAll(context)
+                WeeklyReport.restore(context)
+            }.onFailure { Log.e(TAG, "Could not restore reminders and reports", it) }
+        }
     }
 
-    private companion object {
-        const val TAG = "ControlBoot"
+    companion object {
+        private const val TAG = "ControlBoot"
+
+        internal fun handles(action: String?): Boolean =
+            action == Intent.ACTION_LOCKED_BOOT_COMPLETED ||
+                action == Intent.ACTION_BOOT_COMPLETED ||
+                action == Intent.ACTION_MY_PACKAGE_REPLACED
     }
 }

@@ -1,6 +1,7 @@
 package com.example.control.shortcuts
 
 import android.content.Context
+import com.example.control.enforcement.EnforcementClock
 import org.json.JSONObject
 import java.util.Calendar
 
@@ -15,7 +16,7 @@ import java.util.Calendar
  * Counts reset at local midnight, matching the daily reset of every other
  * signal the engine reads.
  */
-class ShortcutStore(context: Context) {
+class ShortcutStore(private val context: Context) {
 
     private val prefs =
         context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -64,6 +65,7 @@ class ShortcutStore(context: Context) {
     }
 
     private fun todayKey(): Int = Calendar.getInstance().run {
+        timeInMillis = EnforcementClock.now(context)
         get(Calendar.YEAR) * 10000 +
             (get(Calendar.MONTH) + 1) * 100 +
             get(Calendar.DAY_OF_MONTH)

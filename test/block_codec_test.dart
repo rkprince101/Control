@@ -18,6 +18,8 @@ void main() {
       name: 'Good night',
       mode: LimitMode.time,
       apps: const {'com.instagram.android', 'com.netflix.mediaclient'},
+      categories: const {'browsers', 'games'},
+      excludedApps: const {'org.mozilla.firefox'},
       schedule: const [
         TimeRange(startMinute: 1260, endMinute: 480, weekdays: {6, 7}),
       ],
@@ -31,6 +33,9 @@ void main() {
     expect(decoded.name, 'Good night');
     expect(decoded.mode, LimitMode.time);
     expect(decoded.apps, original.apps);
+    expect(decoded.categories, original.categories);
+    expect(decoded.excludedApps, original.excludedApps);
+    expect(decoded.copyWith(name: 'Renamed').excludedApps, original.excludedApps);
     expect(decoded.enabled, isFalse);
     expect(decoded.schedulePolarity, RulePolarity.unblockDuring);
     expect(decoded.schedule.single.startMinute, 1260);
@@ -113,6 +118,7 @@ void main() {
     });
 
     expect(decoded.schedule.single.weekdays, {1, 2, 3, 4, 5, 6, 7});
+    expect(decoded.excludedApps, isEmpty);
   });
 
   test('an unknown condition type is dropped, not guessed at', () {

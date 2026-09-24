@@ -32,4 +32,12 @@
     <string name="weekly_channel">Weekly report</string>
     <string name="weekly_channel_body">A summary of your week, once a week.</string>
     <string name="weekly_title">Your week in Control</string>
+
+    <string name="habit_channel">Habit reminders</string>
+    <string name="habit_channel_body">Nudges at the times you set for each habit.</string>
+
+    <string name="focus_channel">Focus timer</string>
+    <string name="focus_channel_body">The running pomodoro, stopwatch or break, with its clock.</string>
+    <string name="focus_done_channel">Focus timer finished</string>
+    <string name="focus_done_channel_body">When a pomodoro or a break comes to an end.</string>
 </resources>

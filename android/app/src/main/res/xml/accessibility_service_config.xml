@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Only window-state changes are requested: the service is woken on app
-  switches, not on every text change in every app.
+  Content/text changes catch navigation inside browser tabs and Settings
+  screens whose controls appear after the window event. Checks are coalesced.
 
   Window content retrieval is on because hard mode has to tell an attempt to
   uninstall Control apart from any other settings screen, which means reading
@@ -10,7 +10,8 @@
   nothing leaves the device.
 -->
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
-    android:accessibilityEventTypes="typeWindowStateChanged|typeWindowsChanged"
+    android:accessibilityEventTypes="typeWindowStateChanged|typeWindowsChanged|typeWindowContentChanged|typeViewTextChanged"
+    android:accessibilityFlags="flagReportViewIds"
     android:accessibilityFeedbackType="feedbackGeneric"
     android:canRetrieveWindowContent="true"
     android:notificationTimeout="100"

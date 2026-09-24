@@ -47,6 +47,11 @@ object WeeklyReport {
         )
     }
 
+    /** Alarms do not survive a reboot, an update, or a clock change. */
+    fun restore(context: Context) {
+        if (SummaryStore(context).weeklyReportEnabled) schedule(context)
+    }
+
     fun cancel(context: Context) {
         val alarms = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
         alarms.cancel(pendingIntent(context))

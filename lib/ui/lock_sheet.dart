@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../main.dart';
 import '../state/control_store.dart';
+import 'sheet.dart';
 import 'theme.dart';
 
 /// Something a lock can be put on.
@@ -75,10 +76,7 @@ abstract final class LockSheet {
     return showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      // This sheet paints its own floating card, so the theme drag handle
-      // would hover in the empty space above it.
-      showDragHandle: false,
+      backgroundColor: ControlColors.of(context).background,
       builder: (_) => target.isLocked
           ? _UnlockSheet(target: target)
           : _ArmSheet(target: target),
@@ -86,28 +84,30 @@ abstract final class LockSheet {
   }
 }
 
+/// The same chrome as every other sheet: grabber, a header with the way out
+/// on the left, then the choices.
 class _SheetShell extends StatelessWidget {
-  const _SheetShell({required this.children});
+  const _SheetShell({required this.title, required this.children});
 
+  final String title;
   final List<Widget> children;
 
   @override
   Widget build(BuildContext context) {
-    final colors = ControlColors.of(context);
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Container(
-          padding: const EdgeInsets.all(18),
-          decoration: BoxDecoration(
-            color: colors.card,
-            borderRadius: BorderRadius.circular(26),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: children,
-          ),
+    return SheetScaffold(
+      title: title,
+      leading: SheetAction('Close', onPressed: () => Navigator.pop(context)),
+      child: SingleChildScrollView(
+        padding: EdgeInsets.fromLTRB(
+          20,
+          8,
+          20,
+          20 + MediaQuery.paddingOf(context).bottom,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: children,
         ),
       ),
     );
@@ -161,6 +161,7 @@ class _ArmSheet extends StatelessWidget {
     final colors = ControlColors.of(context);
 
     return _SheetShell(
+      title: 'Lock',
       children: [
         Padding(
           padding: const EdgeInsets.only(bottom: 18),
@@ -244,6 +245,7 @@ class _UnlockSheet extends StatelessWidget {
     final isTimed = target.lock.kind == LockKind.timed && remaining != null;
 
     return _SheetShell(
+      title: 'Locked',
       children: [
         Padding(
           padding: const EdgeInsets.only(bottom: 18),

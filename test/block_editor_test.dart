@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:control/main.dart';
 import 'package:control/state/control_store.dart';
+import 'package:control/ui/block_editor_sheet.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -39,6 +40,14 @@ void _stubChannel(WidgetTester tester, {bool failSummary = false}) {
   );
 }
 
+/// Fields inside the editor only: every page behind it has a search field too.
+Finder _editorField(int index) => find
+    .descendant(
+      of: find.byType(BlockEditorSheet),
+      matching: find.byType(TextField),
+    )
+    .at(index);
+
 void main() {
   late Directory storage;
   late ControlStore store;
@@ -63,7 +72,7 @@ void main() {
     await openEditor(tester);
 
     // Field 0 is the block name; field 1 is the site input.
-    await tester.enterText(find.byType(TextField).at(1), 'instagram.com');
+    await tester.enterText(_editorField(1), 'instagram.com');
     await tester.pumpAndSettle();
 
     // The same path the keyboard Done key takes.
@@ -81,7 +90,7 @@ void main() {
     // Pressing Save with text still in the field used to discard it.
     await openEditor(tester);
 
-    await tester.enterText(find.byType(TextField).at(1), 'youtube.com');
+    await tester.enterText(_editorField(1), 'youtube.com');
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('Save'));
@@ -96,7 +105,7 @@ void main() {
     // it, the editor stayed open over a block that had already been created.
     await openEditor(tester, failSummary: true);
 
-    await tester.enterText(find.byType(TextField).at(1), 'instagram.com');
+    await tester.enterText(_editorField(1), 'instagram.com');
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('Save'));
@@ -110,7 +119,7 @@ void main() {
     await openEditor(tester);
 
     await tester.enterText(
-      find.byType(TextField).at(1),
+      _editorField(1),
       'https://www.reddit.com/r/all?sort=new',
     );
     await tester.pumpAndSettle();

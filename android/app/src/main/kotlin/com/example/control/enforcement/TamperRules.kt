@@ -29,6 +29,8 @@ object TamperRules {
         "com.android.settings.intelligence",
         "com.android.packageinstaller",
         "com.google.android.packageinstaller",
+        "com.android.permissioncontroller",
+        "com.google.android.permissioncontroller",
         "com.android.vending",
         // OEM skins with their own app managers.
         "com.miui.securitycenter",
@@ -79,6 +81,10 @@ object TamperRules {
         "SubSettings",
     )
 
+    private val accessibilityServiceScreens = listOf(
+        "ToggleAccessibilityService", "AccessibilityServiceDetails", "AccessibilityDetails",
+    )
+
     /**
      * Lowercase, because the haystack is lowercased. Deliberately excludes the
      * bare word "accessibility": it appears on the Settings home page and in a
@@ -122,6 +128,18 @@ object TamperRules {
         appLabel: String,
     ): Boolean {
         val screen = className.orEmpty()
+        val text = screenText?.lowercase(Locale.ROOT)
+        val label = appLabel.lowercase(Locale.ROOT)
+        val namesApp = text != null && containsWord(text, label)
+        // Service-specific detail pages often only say "Use Control", not "deactivate".
+        if (namesApp && accessibilityServiceScreens.any { screen.contains(it, ignoreCase = true) }) {
+            return true
+        }
+        if (namesApp &&
+            (screen.contains("SubSettings", ignoreCase = true) || screen.contains("Dialog", ignoreCase = true))) {
+            if (listOf("use $label", "turn off $label", "stop $label", "disable $label")
+                    .any { containsWord(text, it) }) return true
+        }
         if (deviceAdminScreens.any { screen.contains(it, ignoreCase = true) }) {
             return true
         }
@@ -132,8 +150,7 @@ object TamperRules {
             return false
         }
 
-        val text = screenText?.lowercase(Locale.ROOT) ?: return false
-        if (!containsWord(text, appLabel.lowercase(Locale.ROOT))) return false
+        if (text == null || !namesApp) return false
 
         if (uninstallScreens.any { screen.contains(it, ignoreCase = true) }) {
             return true

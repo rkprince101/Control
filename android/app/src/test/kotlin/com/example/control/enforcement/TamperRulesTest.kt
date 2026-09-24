@@ -108,6 +108,17 @@ class TamperRulesTest {
     // Package gate ------------------------------------------------------------
 
     @Test
+    fun `service toggle and disable confirmation need this app identity`() {
+        assertTrue(tamper("com.android.settings.accessibility.ToggleAccessibilityService", "Control On"))
+        assertTrue(tamper("com.android.settings.SubSettings", "Control Use Control On"))
+        assertTrue(tamper("android.app.AlertDialog", "Turn off Control? Stop"))
+        assertFalse(tamper("com.android.settings.accessibility.ToggleAccessibilityService", "TalkBack On"))
+        assertFalse(tamper("com.android.settings.SubSettings", "Accessibility Installed apps Control TalkBack"))
+        assertFalse(tamper("com.android.settings.SettingsHomepageActivity", "Accessibility Control"))
+        assertFalse(tamper("android.app.AlertDialog", "Turn off TalkBack? Control"))
+    }
+
+    @Test
     fun `the store and oem managers are guarded, ordinary apps are not`() {
         assertTrue(TamperRules.guards("com.android.vending"))
         assertTrue(TamperRules.guards("com.miui.securitycenter"))

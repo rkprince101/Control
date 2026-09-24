@@ -211,38 +211,23 @@ class _PlacePickerSheetState extends State<PlacePickerSheet> {
     );
   }
 
-  Widget _header() => Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 4),
-        child: Row(
-          children: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel'),
-            ),
-            const Spacer(),
-            const Text(
-              'Pick the place',
-              style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
-            ),
-            const Spacer(),
-            TextButton(
-              onPressed: _hasFix
-                  ? () => Navigator.pop(
-                        context,
-                        PickedPlace(
-                          centre: GeoPoint(
-                            _centre.latitude,
-                            _centre.longitude,
-                          ),
-                          radiusMeters: _radius,
-                        ),
-                      )
-                  : null,
-              child: const Text('Save'),
-            ),
-          ],
-        ),
-      );
+  Widget _header() => SheetHeader(
+    title: 'Pick the place',
+    leading: SheetAction('Cancel', onPressed: () => Navigator.pop(context)),
+    trailing: SheetAction(
+      'Save',
+      primary: true,
+      onPressed: _hasFix
+          ? () => Navigator.pop(
+              context,
+              PickedPlace(
+                centre: GeoPoint(_centre.latitude, _centre.longitude),
+                radiusMeters: _radius,
+              ),
+            )
+          : null,
+    ),
+  );
 
   Widget _controls() {
     final colors = ControlColors.of(context);

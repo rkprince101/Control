@@ -12,6 +12,7 @@ abstract final class BlockCodec {
         'mode': block.mode.name,
         'apps': block.apps.toList(),
         'categories': block.categories.toList(),
+        'excludedApps': block.excludedApps.toList(),
         'enabled': block.enabled,
         'blockAgainAfterMs': block.blockAgainAfter?.inMilliseconds,
         'conditions': block.conditions.map(_encodeCondition).toList(),
@@ -32,6 +33,7 @@ abstract final class BlockCodec {
         mode: _enum(LimitMode.values, json['mode'], LimitMode.time),
         apps: _stringSet(json['apps']),
         categories: _stringSet(json['categories']),
+        excludedApps: _stringSet(json['excludedApps']),
         enabled: json['enabled'] as bool? ?? true,
         blockAgainAfter: _duration(json['blockAgainAfterMs']),
         conditions: _list(json['conditions'])

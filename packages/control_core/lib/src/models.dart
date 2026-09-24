@@ -361,6 +361,7 @@ class Block {
     required this.mode,
     this.apps = const {},
     this.categories = const {},
+    this.excludedApps = const {},
     this.conditions = const [],
     this.blockAgainAfter,
     this.schedule = const [],
@@ -388,6 +389,10 @@ class Block {
 
   /// Category tokens resolved to concrete [AppId]s by the platform layer.
   final Set<String> categories;
+
+  /// Exceptions to this block's categories, not to explicit app targets or
+  /// other blocks. Keep package IDs even while an app is uninstalled.
+  final Set<AppId> excludedApps;
 
   /// Sites blocked alongside the apps, as bare hosts (`instagram.com`).
   ///
@@ -421,6 +426,7 @@ class Block {
     LimitMode? mode,
     Set<AppId>? apps,
     Set<String>? categories,
+    Set<AppId>? excludedApps,
     List<UnlockCondition>? conditions,
     Duration? blockAgainAfter,
     bool clearBlockAgainAfter = false,
@@ -442,6 +448,7 @@ class Block {
         mode: mode ?? this.mode,
         apps: apps ?? this.apps,
         categories: categories ?? this.categories,
+        excludedApps: excludedApps ?? this.excludedApps,
         conditions: conditions ?? this.conditions,
         blockAgainAfter:
             clearBlockAgainAfter ? null : (blockAgainAfter ?? this.blockAgainAfter),
@@ -499,7 +506,7 @@ class Signals {
   /// How many times each shortcut channel fired today, keyed by channel name.
   final Map<String, int> shortcutCounts;
 
-  /// Active unlock grants keyed by block id.
+  /// Unlock grants keyed by block id, including today's spent allowances.
   final Map<String, UnlockGrant> grants;
 
   Signals copyWith({

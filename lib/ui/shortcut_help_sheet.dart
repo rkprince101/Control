@@ -36,28 +36,22 @@ class ShortcutHelpSheet extends StatelessWidget {
       child: Column(
         children: [
             const SheetGrabber(),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
-            child: Row(
-              children: [
-                const Expanded(
-                  child: Text(
-                    'How shortcuts work',
-                    style:
-                        TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
-                  ),
-                ),
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text('Done'),
-                ),
-              ],
+          SheetHeader(
+            title: 'Shortcuts',
+            leading: SheetAction(
+              'Done',
+              onPressed: () => Navigator.pop(context),
             ),
           ),
           Expanded(
             child: ListView(
               padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
               children: [
+                const Text(
+                  'How shortcuts work',
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 12),
                 Text(
                   'A channel is a name you invent for one real-world action: '
                   '"pushups", "cold-shower", "desk". Control does not know how '

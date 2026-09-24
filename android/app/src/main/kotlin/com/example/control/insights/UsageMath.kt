@@ -2,7 +2,7 @@ package com.example.control.insights
 
 /** One raw usage event, reduced to what the arithmetic needs. */
 data class UsageEventRecord(
-    val packageName: String,
+    val packageName: String?,
     val type: Int,
     val timestamp: Long,
 )
@@ -52,6 +52,8 @@ object UsageMath {
     const val SCREEN_NON_INTERACTIVE = 16
     const val KEYGUARD_SHOWN = 17
     const val KEYGUARD_HIDDEN = 18
+    const val DEVICE_SHUTDOWN = 26
+    const val DEVICE_STARTUP = 27
 
     /**
      * Events must be in timestamp order, and should start before [windowStart]
@@ -61,6 +63,8 @@ object UsageMath {
         events: List<UsageEventRecord>,
         windowStart: Long,
         windowEnd: Long,
+        onSession: ((String, Long, Long) -> Unit)? = null,
+        onPickup: ((Int, Long) -> Unit)? = null,
     ): UsageTotals {
         val totals = mutableMapOf<String, Long>()
         var keyguardUnlocks = 0
@@ -73,13 +77,18 @@ object UsageMath {
         fun close(at: Long) {
             val packageName = openPackage ?: return
             val clipped = overlap(openedAt, at, windowStart, windowEnd)
-            if (clipped > 0) totals.merge(packageName, clipped, Long::plus)
+            if (clipped > 0) {
+                totals.merge(packageName, clipped, Long::plus)
+                onSession?.invoke(packageName, maxOf(openedAt, windowStart), minOf(at, windowEnd))
+            }
             openPackage = null
         }
 
         for (event in events) {
+            if (event.timestamp >= windowEnd) continue
             when (event.type) {
                 ACTIVITY_RESUMED -> {
+                    if (event.packageName == null) continue
                     // A resume by anything ends whatever was in front of it,
                     // including a second resume by the same package: moving
                     // between activities inside one app must not restart the
@@ -96,13 +105,20 @@ object UsageMath {
                 // Screen off ends the session. Without this, locking the phone
                 // on an open app credits it until the next event, which can be
                 // hours later.
-                SCREEN_NON_INTERACTIVE, KEYGUARD_SHOWN -> close(event.timestamp)
+                SCREEN_NON_INTERACTIVE, KEYGUARD_SHOWN, DEVICE_SHUTDOWN, DEVICE_STARTUP ->
+                    close(event.timestamp)
 
                 KEYGUARD_HIDDEN ->
-                    if (event.timestamp >= windowStart) keyguardUnlocks++
+                    if (event.timestamp >= windowStart) {
+                        keyguardUnlocks++
+                        onPickup?.invoke(event.type, event.timestamp)
+                    }
 
                 SCREEN_INTERACTIVE ->
-                    if (event.timestamp >= windowStart) screenWakes++
+                    if (event.timestamp >= windowStart) {
+                        screenWakes++
+                        onPickup?.invoke(event.type, event.timestamp)
+                    }
             }
         }
 

@@ -10,6 +10,7 @@ import android.hardware.SensorManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import com.example.control.enforcement.EnforcementClock
 import java.util.Calendar
 
 /**
@@ -129,6 +130,7 @@ class StepsReader(private val context: Context) {
     }
 
     private fun todayKey(): Int = Calendar.getInstance().run {
+        timeInMillis = EnforcementClock.now(context)
         get(Calendar.YEAR) * 10000 + (get(Calendar.MONTH) + 1) * 100 + get(Calendar.DAY_OF_MONTH)
     }
 

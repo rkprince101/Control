@@ -5,6 +5,7 @@ import android.app.admin.DevicePolicyManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.os.UserManager
 import com.example.control.R
 
@@ -18,8 +19,8 @@ import com.example.control.R
  *    which is one tap in Settings. Real friction, not a wall.
  *  - **Device owner.** Provisioned with `adb shell dpm set-device-owner` on a
  *    device with no accounts, so in practice after a factory reset. Unlocks
- *    `setUninstallBlocked`, which cannot be undone without another reset. This
- *    is the rung that matches what iOS gets from Screen Time.
+ *    `setUninstallBlocked` and system restrictions. The app's release path can
+ *    undo these; recovery and factory reset remain outside its guarantees.
  */
 class ControlDeviceAdminReceiver : DeviceAdminReceiver() {
 
@@ -99,7 +100,10 @@ object DeviceAdmin {
         // The Settings path to a wipe. Recovery is still open; nothing can
         // close that.
         UserManager.DISALLOW_FACTORY_RESET,
-    )
+    ) + if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+        // Prevent clock changes from skipping schedules or expiring grants early.
+        listOf(UserManager.DISALLOW_CONFIG_DATE_TIME)
+    } else emptyList()
 
     /**
      * Turns the extra restrictions on or off. No-op unless device owner.

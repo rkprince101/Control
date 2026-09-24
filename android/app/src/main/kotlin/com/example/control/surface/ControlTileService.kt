@@ -1,12 +1,16 @@
 package com.example.control.surface
 
 import android.app.PendingIntent
+import android.annotation.SuppressLint
 import android.content.Intent
 import android.os.Build
 import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
 import com.example.control.MainActivity
 import com.example.control.enforcement.PlanStore
+import com.example.control.enforcement.EnforcementClock
+import com.example.control.insights.AppCategoryResolver
+import com.example.control.insights.InstalledAppsReader
 
 /**
  * Quick Settings tile: how much is blocked right now, one swipe from anywhere.
@@ -22,6 +26,8 @@ class ControlTileService : TileService() {
         render()
     }
 
+    // The PendingIntent overload does not exist before API 34; the legacy call is guarded.
+    @SuppressLint("StartActivityAndCollapseDeprecated")
     override fun onClick() {
         super.onClick()
         val intent = Intent(this, MainActivity::class.java)
@@ -46,18 +52,26 @@ class ControlTileService : TileService() {
 
     private fun render() {
         val tile = qsTile ?: return
-        val blocked = PlanStore(this).read().blockedPackages.size
+        val plan = PlanStore(this).read()
+        val candidates = if (plan.rules?.any { it.categories.isNotEmpty() } == true) {
+            InstalledAppsReader(this).launchable().map { it.packageName }.toSet()
+        } else emptySet()
+        val blocked = plan.effectivePackages(
+            candidates, AppCategoryResolver(this)::categories, EnforcementClock.now(this),
+        ).size
 
         tile.state = if (blocked > 0) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
         tile.label = getString(com.example.control.R.string.app_name)
-        tile.subtitle = if (blocked == 0) {
-            getString(com.example.control.R.string.tile_nothing_blocked)
-        } else {
-            resources.getQuantityString(
-                com.example.control.R.plurals.tile_blocked,
-                blocked,
-                blocked,
-            )
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            tile.subtitle = if (blocked == 0) {
+                getString(com.example.control.R.string.tile_nothing_blocked)
+            } else {
+                resources.getQuantityString(
+                    com.example.control.R.plurals.tile_blocked,
+                    blocked,
+                    blocked,
+                )
+            }
         }
         tile.updateTile()
     }

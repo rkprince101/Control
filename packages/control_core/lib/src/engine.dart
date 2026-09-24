@@ -81,11 +81,18 @@ class RuleEngine {
     required Signals signals,
     required DateTime now,
   }) {
-    if (block.mode != LimitMode.condition) return null;
+    if (!block.enabled || block.mode != LimitMode.condition) return null;
     if (block.conditions.isEmpty) return null;
 
     final existing = signals.grants[block.id];
     if (existing != null && existing.isActive(now)) return null;
+    // Daily cumulative signals cannot buy the same allowance repeatedly.
+    if (existing != null &&
+        existing.grantedAt.year == now.year &&
+        existing.grantedAt.month == now.month &&
+        existing.grantedAt.day == now.day) {
+      return null;
+    }
 
     final allMet = block.conditions.every((c) => c.isMet(signals));
     if (!allMet) return null;

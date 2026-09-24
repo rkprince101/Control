@@ -20,6 +20,11 @@ data class UsageSnapshot(
     val apps: List<AppUsage>,
     val totalScreenMillis: Long,
     val pickups: Int,
+    val buckets: List<UsageTimelineBucket> = emptyList(),
+    val startMillis: Long? = null,
+    val endMillis: Long? = null,
+    val firstEventAt: Long? = null,
+    val historyNote: String? = null,
 )
 
 /**
@@ -71,24 +76,12 @@ class UsageStatsReader(private val context: Context) {
      *    foreground is credited with all the hours until midnight.
      */
     fun snapshot(startMillis: Long, endMillis: Long): UsageSnapshot {
-        val manager =
-            context.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
-
         val windowEnd = minOf(endMillis, System.currentTimeMillis())
         if (windowEnd <= startMillis) {
             return UsageSnapshot(emptyList(), 0L, 0)
         }
 
-        val events = manager.queryEvents(startMillis - SESSION_LOOKBACK_MS, windowEnd)
-        val records = mutableListOf<UsageEventRecord>()
-
-        val event = UsageEvents.Event()
-        while (events.hasNextEvent()) {
-            events.getNextEvent(event)
-            val packageName = event.packageName ?: continue
-            records += UsageEventRecord(packageName, event.eventType, event.timeStamp)
-        }
-
+        val records = readEvents(startMillis, windowEnd)
         val totals = UsageMath.accumulate(records, startMillis, windowEnd)
 
         // Apps the user can actually open, plus Control itself. Without the
@@ -110,6 +103,45 @@ class UsageStatsReader(private val context: Context) {
             totalScreenMillis = apps.sumOf { it.foregroundMillis },
             pickups = totals.pickups,
         )
+    }
+
+    fun timeline(startMillis: Long, endMillis: Long, bucket: String): UsageSnapshot {
+        if (!hasPermission()) throw SecurityException("Usage access has not been granted")
+        val now = System.currentTimeMillis()
+        val windowStart = minOf(startMillis, now)
+        val windowEnd = minOf(endMillis, now)
+        val records = if (windowStart < windowEnd) readEvents(windowStart, windowEnd) else emptyList()
+        val visible = installedApps.visibleForUsage()
+        val totals = UsageTimeline.accumulate(
+            records, windowStart, windowEnd, bucket,
+            includePackage = { it in visible },
+        )
+        // Permission may have been revoked during the query; never return fake zero success.
+        if (!hasPermission()) throw SecurityException("Usage access has not been granted")
+        val apps = totals.perPackage.map { (packageName, millis) ->
+            AppUsage(packageName, visible.getValue(packageName), millis)
+        }.sortedByDescending { it.foregroundMillis }
+        return UsageSnapshot(
+            apps, totals.totalScreenMillis, totals.pickups, totals.buckets,
+            windowStart, windowEnd, totals.firstEventAt,
+            "Android retains usage events for a limited time. Older activity may be missing; " +
+                "empty intervals do not prove the device was unused.",
+        )
+    }
+
+    private fun readEvents(startMillis: Long, endMillis: Long): List<UsageEventRecord> {
+        val manager = context.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
+        val events = manager.queryEvents((startMillis - SESSION_LOOKBACK_MS).coerceAtLeast(0), endMillis)
+            ?: throw IllegalStateException("Android usage history is temporarily unavailable")
+        val records = mutableListOf<UsageEventRecord>()
+        val event = UsageEvents.Event()
+        while (events.hasNextEvent()) {
+            if (Thread.currentThread().isInterrupted) throw InterruptedException()
+            events.getNextEvent(event)
+            // Screen/keyguard events can have no package and still end sessions/count pickups.
+            records += UsageEventRecord(event.packageName, event.eventType, event.timeStamp)
+        }
+        return records
     }
 
     private companion object {

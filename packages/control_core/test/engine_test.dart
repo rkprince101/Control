@@ -320,14 +320,27 @@ void main() {
       );
       expect(decision.blocked, isTrue);
 
-      // Still standing at 6000 steps, so the same day's work earns a fresh
-      // grant. Requiring new steps per cycle is a product decision, not a
-      // default; today the habit counts as done.
+      // The same cumulative daily work cannot renew an expired allowance.
       expect(
         engine.mintGrantIfEarned(
           block: block,
           signals: signals.copyWith(grants: {'steps': grant}),
           now: later,
+        ),
+        isNull,
+      );
+    });
+
+    test('a new day can earn another allowance', () {
+      final grant = UnlockGrant(
+        grantedAt: now,
+        expiresAt: now.add(const Duration(hours: 2)),
+      );
+      expect(
+        engine.mintGrantIfEarned(
+          block: block,
+          signals: Signals(stepsToday: 6000, grants: {'steps': grant}),
+          now: now.add(const Duration(days: 1)),
         ),
         isNotNull,
       );

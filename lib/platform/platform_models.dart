@@ -6,17 +6,22 @@ class InstalledApp {
     required this.id,
     required this.label,
     required this.isSystem,
+    this.categories = const {},
   });
 
   factory InstalledApp.fromMap(Map<Object?, Object?> map) => InstalledApp(
-        id: map['package'] as String,
-        label: map['label'] as String? ?? map['package'] as String,
-        isSystem: map['isSystem'] as bool? ?? false,
-      );
+    id: map['package'] as String,
+    label: map['label'] as String? ?? map['package'] as String,
+    isSystem: map['isSystem'] as bool? ?? false,
+    categories: (map['categories'] as List<Object?>? ?? const [])
+        .whereType<String>()
+        .toSet(),
+  );
 
   final AppId id;
   final String label;
   final bool isSystem;
+  final Set<String> categories;
 }
 
 /// Screen time for a single app over the queried window.
@@ -28,14 +33,38 @@ class AppUsage {
   });
 
   factory AppUsage.fromMap(Map<Object?, Object?> map) => AppUsage(
-        id: map['package'] as String,
-        label: map['label'] as String? ?? map['package'] as String,
-        duration: Duration(milliseconds: (map['millis'] as num).toInt()),
-      );
+    id: map['package'] as String,
+    label: map['label'] as String? ?? map['package'] as String,
+    duration: Duration(milliseconds: (map['millis'] as num).toInt()),
+  );
 
   final AppId id;
   final String label;
   final Duration duration;
+}
+
+/// Measured activity in one clipped, local-calendar timeline interval.
+class UsageBucket {
+  const UsageBucket({
+    required this.start,
+    required this.end,
+    required this.screenTime,
+    required this.pickups,
+  });
+
+  factory UsageBucket.fromMap(Map<Object?, Object?> map) => UsageBucket(
+    start: DateTime.fromMillisecondsSinceEpoch(
+      (map['startMillis'] as num).toInt(),
+    ),
+    end: DateTime.fromMillisecondsSinceEpoch((map['endMillis'] as num).toInt()),
+    screenTime: Duration(milliseconds: (map['millis'] as num).toInt()),
+    pickups: (map['pickups'] as num).toInt(),
+  );
+
+  final DateTime start;
+  final DateTime end;
+  final Duration screenTime;
+  final int pickups;
 }
 
 /// Everything behind the Insights screen for one window.
@@ -44,25 +73,63 @@ class UsageSnapshot {
     required this.apps,
     required this.screenTime,
     required this.pickups,
+    this.buckets = const [],
+    this.start,
+    this.end,
+    this.firstEventAt,
+    this.historyNote,
   });
 
   factory UsageSnapshot.fromMap(Map<Object?, Object?> map) => UsageSnapshot(
-        apps: (map['apps'] as List<Object?>)
-            .map((e) => AppUsage.fromMap(e! as Map<Object?, Object?>))
-            .toList(),
-        screenTime:
-            Duration(milliseconds: (map['totalScreenMillis'] as num).toInt()),
-        pickups: (map['pickups'] as num).toInt(),
-      );
+    apps: (map['apps'] as List<Object?>)
+        .map((e) => AppUsage.fromMap(e! as Map<Object?, Object?>))
+        .toList(),
+    screenTime: Duration(
+      milliseconds: (map['totalScreenMillis'] as num).toInt(),
+    ),
+    pickups: (map['pickups'] as num).toInt(),
+    buckets: (map['buckets'] as List<Object?>? ?? const [])
+        .map((e) => UsageBucket.fromMap(e! as Map<Object?, Object?>))
+        .toList(),
+    start: map['startMillis'] == null
+        ? null
+        : DateTime.fromMillisecondsSinceEpoch(
+            (map['startMillis'] as num).toInt(),
+          ),
+    end: map['endMillis'] == null
+        ? null
+        : DateTime.fromMillisecondsSinceEpoch(
+            (map['endMillis'] as num).toInt(),
+          ),
+    firstEventAt: map['firstEventAt'] == null
+        ? null
+        : DateTime.fromMillisecondsSinceEpoch(
+            (map['firstEventAt'] as num).toInt(),
+          ),
+    historyNote: map['historyNote'] as String?,
+  );
 
   const UsageSnapshot.empty()
-      : apps = const [],
-        screenTime = Duration.zero,
-        pickups = 0;
+    : apps = const [],
+      screenTime = Duration.zero,
+      pickups = 0,
+      buckets = const [],
+      start = null,
+      end = null,
+      firstEventAt = null,
+      historyNote = null;
 
   final List<AppUsage> apps;
   final Duration screenTime;
   final int pickups;
+  final List<UsageBucket> buckets;
+  final DateTime? start;
+  final DateTime? end;
+
+  /// Earliest event returned by Android, including the session lookback.
+  /// This is not proof that earlier history is complete or absent.
+  final DateTime? firstEventAt;
+  final String? historyNote;
 }
 
 /// Whether Steps conditions can work on this device.
@@ -70,13 +137,11 @@ class StepsStatus {
   const StepsStatus({required this.granted, required this.available});
 
   factory StepsStatus.fromMap(Map<Object?, Object?> map) => StepsStatus(
-        granted: map['granted'] as bool? ?? false,
-        available: map['available'] as bool? ?? false,
-      );
+    granted: map['granted'] as bool? ?? false,
+    available: map['available'] as bool? ?? false,
+  );
 
-  const StepsStatus.unknown()
-      : granted = false,
-        available = false;
+  const StepsStatus.unknown() : granted = false, available = false;
 
   /// Activity recognition permission, needed from Android 10 onwards.
   final bool granted;
@@ -86,6 +151,39 @@ class StepsStatus {
   final bool available;
 
   bool get usable => granted && available;
+}
+
+/// Whether Control can reach the user with a notification, and on time.
+class NotificationStatus {
+  const NotificationStatus({
+    required this.enabled,
+    required this.exactAlarms,
+    required this.exactRelevant,
+  });
+
+  /// Anything unreadable counts as fine: a warning shown on a guess would be
+  /// worse than none.
+  factory NotificationStatus.fromMap(Map<Object?, Object?>? map) =>
+      NotificationStatus(
+        enabled: map?['enabled'] as bool? ?? true,
+        exactAlarms: map?['exactAlarms'] as bool? ?? true,
+        exactRelevant: map?['exactRelevant'] as bool? ?? false,
+      );
+
+  const NotificationStatus.unknown()
+    : enabled = true,
+      exactAlarms = true,
+      exactRelevant = false;
+
+  /// Posting is allowed: the permission on Android 13+, and the app's
+  /// notifications not switched off by hand.
+  final bool enabled;
+
+  /// Alarms may fire on the minute. Always true before Android 12.
+  final bool exactAlarms;
+
+  /// Whether exact alarms are something the user grants on this Android.
+  final bool exactRelevant;
 }
 
 /// How hard it currently is to delete the app.
@@ -106,10 +204,10 @@ class ProtectionStatus {
       );
 
   const ProtectionStatus.none()
-      : adminActive = false,
-        deviceOwner = false,
-        uninstallBlocked = false,
-        hardMode = false;
+    : adminActive = false,
+      deviceOwner = false,
+      uninstallBlocked = false,
+      hardMode = false;
 
   /// Device admin held: Android refuses to uninstall, but the user can
   /// deactivate admin in Settings first.
@@ -163,9 +261,9 @@ class DeviceOwnerStatus {
       );
 
   const DeviceOwnerStatus.unknown()
-      : isOwner = false,
-        provisioningAllowed = false,
-        component = '';
+    : isOwner = false,
+      provisioningAllowed = false,
+      component = '';
 
   final bool isOwner;
 
@@ -185,13 +283,11 @@ class LocationStatus {
   const LocationStatus({required this.granted, required this.enabled});
 
   factory LocationStatus.fromMap(Map<Object?, Object?> map) => LocationStatus(
-        granted: map['granted'] as bool? ?? false,
-        enabled: map['enabled'] as bool? ?? false,
-      );
+    granted: map['granted'] as bool? ?? false,
+    enabled: map['enabled'] as bool? ?? false,
+  );
 
-  const LocationStatus.unknown()
-      : granted = false,
-        enabled = false;
+  const LocationStatus.unknown() : granted = false, enabled = false;
 
   final bool granted;
 

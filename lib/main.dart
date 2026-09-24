@@ -1,9 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 
 import 'state/control_store.dart';
 import 'ui/block_editor_sheet.dart';
 import 'ui/blocks_page.dart';
+import 'ui/expressive_progress.dart';
+import 'ui/habit_sheets.dart';
+import 'ui/habits_page.dart';
 import 'ui/insights_page.dart';
+import 'ui/navigation.dart';
 import 'ui/settings_page.dart';
 import 'ui/theme.dart';
 
@@ -22,7 +27,8 @@ class ControlApp extends StatelessWidget {
       store: store,
       child: Builder(
         builder: (context) {
-          final choice = StoreScope.of(context).theme;
+          final store = StoreScope.of(context);
+          final choice = store.theme;
           return MaterialApp(
             title: 'control',
             debugShowCheckedModeBanner: false,
@@ -32,6 +38,11 @@ class ControlApp extends StatelessWidget {
               pitchBlack: choice == AppThemeChoice.pitchBlack,
             ),
             themeMode: choice.themeMode,
+            // Above the navigator, so sheets and dialogs follow it too.
+            builder: (context, child) => WaveMotionScope(
+              motion: store.waveMotion,
+              child: child ?? const SizedBox.shrink(),
+            ),
             home: const HomeShell(),
           );
         },
@@ -62,16 +73,35 @@ class HomeShell extends StatefulWidget {
   State<HomeShell> createState() => _HomeShellState();
 }
 
+/// The page's primary action: Gmail's Compose.
+typedef _PageAction = ({IconData icon, String label, VoidCallback onPressed});
+
+/// Navigation laid out the way Gmail does it.
+///
+/// On a phone: a search bar across the top with the menu at its left, a modal
+/// drawer behind the menu, and an extended action button that tucks itself
+/// away while the page scrolls. On a wide screen: a rail with the menu and the
+/// action button at its head, expanding in place to show labels.
 class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
-  int _tab = 0;
+  final _scaffold = GlobalKey<ScaffoldState>();
+  Destination _destination = Destination.blocks;
+  bool _fabExtended = true;
+  bool _railExtended = false;
+
+  static const _pages = {
+    Destination.blocks: BlocksPage(),
+    Destination.habits: HabitsPage(),
+    Destination.insights: InsightsPage(),
+    Destination.settings: SettingsPage(),
+  };
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    WidgetsBinding.instance.addPostFrameCallback(
-      (_) => StoreScope.of(context).init(),
-    );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) StoreScope.of(context).init();
+    });
   }
 
   @override
@@ -88,149 +118,197 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     if (state == AppLifecycleState.resumed) StoreScope.of(context).refreshAll();
   }
 
+  void _select(Destination destination) {
+    if (destination == _destination) return;
+    setState(() {
+      _destination = destination;
+      _fabExtended = true;
+    });
+  }
+
+  /// A pick from the drawer closes it first, as every modal drawer does.
+  void _selectFromDrawer(Destination destination) {
+    _scaffold.currentState?.closeDrawer();
+    _select(destination);
+  }
+
+  void _openDrawer() => _scaffold.currentState?.openDrawer();
+
+  bool _onScroll(UserScrollNotification notification) {
+    if (notification.metrics.axis != Axis.vertical) return false;
+    final atTop =
+        notification.metrics.pixels <= notification.metrics.minScrollExtent;
+    final extended = switch (notification.direction) {
+      ScrollDirection.reverse => atTop,
+      ScrollDirection.forward => true,
+      ScrollDirection.idle => _fabExtended || atTop,
+    };
+    if (extended != _fabExtended) setState(() => _fabExtended = extended);
+    return false;
+  }
+
+  _PageAction? get _action => switch (_destination) {
+    Destination.blocks => (
+      icon: Icons.add,
+      label: 'New block',
+      onPressed: () => BlockEditorSheet.show(context),
+    ),
+    Destination.habits => (
+      icon: Icons.add,
+      label: 'New habit',
+      onPressed: () => HabitEditorSheet.show(context),
+    ),
+    Destination.insights || Destination.settings => null,
+  };
+
   @override
   Widget build(BuildContext context) {
-    const pages = [BlocksPage(), InsightsPage(), SettingsPage()];
+    final wide = MediaQuery.sizeOf(context).width >= 840;
+    final action = _action;
 
-    return Scaffold(
-      // The pill floats over the content: the bar slot itself paints nothing,
-      // so pages scroll underneath it instead of stopping at a grey strip.
-      extendBody: true,
-      body: pages[_tab],
-      // The primary action of the whole app, so it gets the M3 treatment
-      // rather than an icon button tucked beside a heading. Only on Blocks:
-      // a FAB that changes meaning per tab is worse than no FAB.
-      floatingActionButton: _tab == 0
-          ? FloatingActionButton.extended(
-              onPressed: () => BlockEditorSheet.show(context),
-              icon: const Icon(Icons.add),
-              label: const Text('New block'),
-            )
-          : null,
-      bottomNavigationBar: _PillNavBar(
-        index: _tab,
-        onChanged: (index) => setState(() => _tab = index),
+    final content = NotificationListener<UserScrollNotification>(
+      onNotification: _onScroll,
+      child: IndexedStack(
+        index: Destination.values.indexOf(_destination),
+        children: [
+          for (final destination in Destination.values)
+            TickerMode(
+              enabled: destination == _destination,
+              child: _pages[destination]!,
+            ),
+        ],
       ),
     );
-  }
-}
 
-/// Icons only, sized to the thumb rather than to the labels.
-///
-/// Three destinations that never change do not need naming on every screen:
-/// the labels were repeating what the icons already said and pushing the
-/// content up by a row.
-/// The floating navigation pill.
-///
-/// Not a `NavigationBar`: that component spans the full width and reserves room
-/// for labels, and this app wants the content to run underneath a small
-/// floating control. The colour roles and the selected-indicator behaviour are
-/// M3 all the same, including the filled-icon-when-selected convention that
-/// carries the state without a label.
-class _PillNavBar extends StatelessWidget {
-  const _PillNavBar({required this.index, required this.onChanged});
-
-  final int index;
-  final ValueChanged<int> onChanged;
-
-  static const _items = [
-    (Icons.shield_outlined, Icons.shield_rounded, 'Blocks'),
-    (Icons.bar_chart_outlined, Icons.bar_chart_rounded, 'Insights'),
-    (Icons.settings_outlined, Icons.settings_rounded, 'Settings'),
-  ];
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-
-    return SafeArea(
-      top: false,
-      child: Padding(
-        padding: const EdgeInsets.only(bottom: 10),
-        // A Row rather than a Center: the bottom bar slot passes loose
-        // constraints, and Center takes every pixel of height it is offered,
-        // which leaves the body with none.
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              decoration: BoxDecoration(
-                color: scheme.surfaceContainer,
-                borderRadius: BorderRadius.circular(26),
-                border: Border.all(color: scheme.outlineVariant, width: 0.5),
-              ),
-              padding: const EdgeInsets.all(5),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  for (var i = 0; i < _items.length; i++)
-                    _NavItem(
-                      icon: _items[i].$1,
-                      selectedIcon: _items[i].$2,
-                      label: _items[i].$3,
-                      selected: i == index,
-                      onTap: () => onChanged(i),
-                    ),
-                ],
-              ),
-            ),
-          ],
+    // As in Gmail, back from any other page returns to the first one before
+    // it leaves the app.
+    return PopScope(
+      canPop: _destination == Destination.blocks,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _select(Destination.blocks);
+      },
+      child: HomeNavigation(
+        destination: _destination,
+        onSelect: _select,
+        onOpenDrawer: wide ? null : _openDrawer,
+        child: Scaffold(
+          key: _scaffold,
+          drawer: wide
+              ? null
+              : ControlDrawer(
+                  selected: _destination,
+                  onSelect: _selectFromDrawer,
+                  onOpenRule: (block) {
+                    _scaffold.currentState?.closeDrawer();
+                    BlockEditorSheet.show(context, existing: block);
+                  },
+                  onNewRule: () {
+                    _scaffold.currentState?.closeDrawer();
+                    BlockEditorSheet.show(context);
+                  },
+                ),
+          // The search bar floats over content, so the status bar keeps its own
+          // band of background rather than letting cards slide up under it.
+          body: SafeArea(
+            bottom: false,
+            child: wide
+                ? Row(
+                    children: [
+                      _Rail(
+                        selected: _destination,
+                        extended: _railExtended,
+                        action: action,
+                        onToggle: () =>
+                            setState(() => _railExtended = !_railExtended),
+                        onSelect: _select,
+                      ),
+                      const VerticalDivider(width: 1),
+                      Expanded(child: content),
+                    ],
+                  )
+                : content,
+          ),
+          floatingActionButton: wide || action == null
+              ? null
+              : CollapsingFab(
+                  extended: _fabExtended,
+                  icon: action.icon,
+                  label: action.label,
+                  onPressed: action.onPressed,
+                ),
         ),
       ),
     );
   }
 }
 
-class _NavItem extends StatelessWidget {
-  const _NavItem({
-    required this.icon,
-    required this.selectedIcon,
-    required this.label,
+/// Gmail's tablet layout: the menu and the primary action at the head of the
+/// rail, destinations below.
+class _Rail extends StatelessWidget {
+  const _Rail({
     required this.selected,
-    required this.onTap,
+    required this.extended,
+    required this.action,
+    required this.onToggle,
+    required this.onSelect,
   });
 
-  final IconData icon;
-  final IconData selectedIcon;
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
+  final Destination selected;
+  final bool extended;
+  final _PageAction? action;
+  final VoidCallback onToggle;
+  final ValueChanged<Destination> onSelect;
+
+  static const _collapsedWidth = 80.0;
+  static const _extendedWidth = 280.0;
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final radius = BorderRadius.circular(21);
+    final store = StoreScope.of(context);
+    final action = this.action;
 
-    return Semantics(
-      // The labels are gone for space, so they have to survive for screen
-      // readers, which is also what makes the tabs testable by name.
-      label: label,
-      selected: selected,
-      button: true,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: radius,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 180),
-            curve: Curves.easeOutCubic,
-            width: 62,
-            height: 42,
-            decoration: BoxDecoration(
-              color: selected ? scheme.secondaryContainer : Colors.transparent,
-              borderRadius: radius,
-            ),
-            child: Icon(
-              selected ? selectedIcon : icon,
-              size: 21,
-              color: selected
-                  ? scheme.onSecondaryContainer
-                  : scheme.onSurfaceVariant,
-            ),
-          ),
-        ),
+    return NavigationRail(
+      extended: extended,
+      minWidth: _collapsedWidth,
+      minExtendedWidth: _extendedWidth,
+      labelType: extended
+          ? NavigationRailLabelType.none
+          : NavigationRailLabelType.all,
+      selectedIndex: Destination.values.indexOf(selected),
+      onDestinationSelected: (index) => onSelect(Destination.values[index]),
+      leading: RailHead(
+        extended: extended,
+        onToggle: onToggle,
+        collapsedWidth: _collapsedWidth,
+        extendedWidth: _extendedWidth,
+        icon: action?.icon,
+        label: action?.label,
+        onPressed: action?.onPressed,
       ),
+      destinations: [
+        for (final destination in Destination.values)
+          NavigationRailDestination(
+            icon: _badged(store, destination, Icon(destination.icon)),
+            selectedIcon: _badged(
+              store,
+              destination,
+              Icon(destination.selectedIcon),
+            ),
+            label: Text(destination.label),
+          ),
+      ],
     );
+  }
+
+  /// Counts only: a rail badge has room for a number, not a duration.
+  static Widget _badged(
+    ControlStore store,
+    Destination destination,
+    Widget icon,
+  ) {
+    final badge = destination == Destination.insights
+        ? null
+        : ControlDrawer.badgeFor(store, destination);
+    return badge == null ? icon : Badge(label: Text(badge), child: icon);
   }
 }

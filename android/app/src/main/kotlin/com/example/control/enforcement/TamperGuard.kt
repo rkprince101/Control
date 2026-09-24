@@ -22,8 +22,9 @@ import java.util.Locale
  */
 class TamperGuard(context: Context) {
 
-    private val prefs = context.applicationContext
-        .getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    private val context = context.applicationContext
+    private val prefs
+        get() = EnforcementStorage.preferences(context, PREFS)
 
     private val appLabel: String = runCatching {
         val info = context.applicationInfo
@@ -37,9 +38,9 @@ class TamperGuard(context: Context) {
     fun guards(packageName: String) = enabled && TamperRules.guards(packageName)
 
     fun isTamperScreen(className: CharSequence?, root: AccessibilityNodeInfo?): Boolean =
-        TamperRules.isTamperScreen(
+        root != null && guards(root.packageName?.toString().orEmpty()) && TamperRules.isTamperScreen(
             className = className?.toString(),
-            screenText = root?.let(::collectText),
+            screenText = collectText(root),
             appLabel = appLabel,
         )
 
@@ -62,7 +63,13 @@ class TamperGuard(context: Context) {
             node.contentDescription?.let { builder.append(it).append(' ') }
 
             for (i in 0 until node.childCount) {
-                walk(node.getChild(i), depth + 1)
+                val child = node.getChild(i) ?: continue
+                try {
+                    walk(child, depth + 1)
+                } finally {
+                    @Suppress("DEPRECATION")
+                    child.recycle()
+                }
             }
         }
 

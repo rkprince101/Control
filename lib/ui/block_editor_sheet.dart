@@ -16,26 +16,33 @@ import 'widgets.dart';
 
 /// Creates a block, or edits an existing one.
 ///
-/// When the block is locked, everything that changes what it blocks is held
-/// shut and only the name and icon stay editable. Those two change nothing
-/// about the commitment, and refusing them would be pedantry rather than
-/// enforcement.
+/// Locked blocks can be renamed, re-iconed, or tightened, but never weakened.
 ///
 /// Only the modes and habits whose signals this platform actually measures are
 /// offered. A Place rule with no location source fails closed and would read as
 /// an app that blocks everything forever; a Workout condition with no Health
 /// Connect source could never be satisfied at all.
 class BlockEditorSheet extends StatefulWidget {
-  const BlockEditorSheet({this.existing, super.key});
+  const BlockEditorSheet({
+    this.existing,
+    this.initialApps = const {},
+    super.key,
+  });
 
   final Block? existing;
+  final Set<AppId> initialApps;
 
-  static Future<void> show(BuildContext context, {Block? existing}) {
+  static Future<void> show(
+    BuildContext context, {
+    Block? existing,
+    Set<AppId> initialApps = const {},
+  }) {
     return showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       backgroundColor: ControlColors.of(context).background,
-      builder: (_) => BlockEditorSheet(existing: existing),
+      builder: (_) =>
+          BlockEditorSheet(existing: existing, initialApps: initialApps),
     );
   }
 
@@ -48,6 +55,8 @@ class _BlockEditorSheetState extends State<BlockEditorSheet> {
   late final TextEditingController _channel;
 
   late Set<AppId> _apps;
+  late Set<String> _categories;
+  late Set<AppId> _excludedApps;
   late Set<String> _domains;
   late final TextEditingController _domainInput;
   late LimitMode _mode;
@@ -88,7 +97,9 @@ class _BlockEditorSheetState extends State<BlockEditorSheet> {
     final block = widget.existing;
 
     _name = TextEditingController(text: block?.name ?? 'Focus');
-    _apps = {...?block?.apps};
+    _apps = {...(block?.apps ?? widget.initialApps)};
+    _categories = {...?block?.categories};
+    _excludedApps = {...?block?.excludedApps};
     _domains = {...?block?.blockedDomains};
     _domainInput = TextEditingController();
     _mode = block?.mode ?? LimitMode.time;
@@ -117,8 +128,9 @@ class _BlockEditorSheetState extends State<BlockEditorSheet> {
     _earnApps = {...?appTime?.apps};
     _earnMinutes = appTime?.target.inMinutes ?? 30;
 
-    final shortcut =
-        block?.conditions.whereType<ShortcutCondition>().firstOrNull;
+    final shortcut = block?.conditions
+        .whereType<ShortcutCondition>()
+        .firstOrNull;
     _shortcutOn = shortcut != null;
     _shortcutCount = shortcut?.requiredCount ?? 1;
     _channel = TextEditingController(text: shortcut?.channel ?? '');
@@ -127,8 +139,9 @@ class _BlockEditorSheetState extends State<BlockEditorSheet> {
     _focusOn = focus != null;
     _focusMinutes = focus?.target.inMinutes ?? 240;
 
-    final place =
-        block?.conditions.whereType<PlaceCheckInCondition>().firstOrNull;
+    final place = block?.conditions
+        .whereType<PlaceCheckInCondition>()
+        .firstOrNull;
     _placeOn = place != null;
     _placeCentre = place?.zone.center;
     _placeName = place?.zone.name ?? 'The place';
@@ -165,9 +178,14 @@ class _BlockEditorSheetState extends State<BlockEditorSheet> {
       final before = widget.existing;
       return before == null ||
           (_apps.containsAll(before.apps) &&
+              _categories.containsAll(before.categories) &&
+              before.excludedApps.containsAll(_excludedApps) &&
               _domains.containsAll(before.blockedDomains));
     }
-    if (_apps.isEmpty && _domains.isEmpty && _pendingDomain == null) {
+    if (_apps.isEmpty &&
+        _categories.isEmpty &&
+        _domains.isEmpty &&
+        _pendingDomain == null) {
       return false;
     }
     return switch (_mode) {
@@ -183,209 +201,208 @@ class _BlockEditorSheetState extends State<BlockEditorSheet> {
 
     return FractionallySizedBox(
       heightFactor: 0.94,
-      child: Column(
-        children: [
+      child: Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.viewInsetsOf(context).bottom,
+        ),
+        child: Column(
+          children: [
             const SheetGrabber(),
-          _header(),
-          Expanded(
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(20, 8, 20, 40),
-              children: [
-                _identityCard(),
-                if (locked) ...[
-                  const SizedBox(height: 12),
-                  _LockedBanner(block: widget.existing!),
-                ],
-                const SizedBox(height: 16),
-                _appsCard(),
-                const SizedBox(height: 16),
-                _websitesCard(),
-                const SizedBox(height: 16),
-                IgnorePointer(
-                  ignoring: locked,
-                  child: Opacity(
-                    opacity: locked ? 0.45 : 1,
-                    child: Column(
-                      children: [
-                        _modeCard(),
-                        const SizedBox(height: 16),
-                        if (_mode == LimitMode.time)
-                          _timeCard()
-                        else
-                          _conditionCard(),
-                      ],
+            _header(),
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 40),
+                children: [
+                  _identityCard(),
+                  if (locked) ...[
+                    const SizedBox(height: 12),
+                    _LockedBanner(block: widget.existing!),
+                  ],
+                  const SizedBox(height: 16),
+                  _appsCard(),
+                  const SizedBox(height: 16),
+                  _websitesCard(),
+                  const SizedBox(height: 16),
+                  IgnorePointer(
+                    ignoring: locked,
+                    child: Opacity(
+                      opacity: locked ? 0.45 : 1,
+                      child: Column(
+                        children: [
+                          _modeCard(),
+                          const SizedBox(height: 16),
+                          if (_mode == LimitMode.time)
+                            _timeCard()
+                          else
+                            _conditionCard(),
+                        ],
+                      ),
                     ),
                   ),
-                ),
-                if (_isEditing && !locked) ...[
-                  const SizedBox(height: 20),
-                  _DeleteButton(block: widget.existing!),
+                  if (_isEditing && !locked) ...[
+                    const SizedBox(height: 20),
+                    _DeleteButton(block: widget.existing!),
+                  ],
                 ],
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _header() => Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 4),
-        child: Row(
-          children: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel'),
-            ),
-            const Spacer(),
-            Text(
-              _isEditing ? 'Edit block' : 'New block',
-              style:
-                  const TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
-            ),
-            const Spacer(),
-            TextButton(
-              onPressed: _isValid ? _save : null,
-              child: const Text('Save'),
-            ),
-          ],
-        ),
-      );
-
-  /// Name and icon: the two things a locked block can still change.
-  Widget _identityCard() => ControlCard(
-        child: Row(
-          children: [
-            GestureDetector(
-              onTap: () async {
-                final picked =
-                    await IconPickerSheet.show(context, _iconAsset);
-                if (picked == null) return;
-                setState(() => _iconAsset = picked.isEmpty ? null : picked);
-              },
-              child: _iconAsset == null
-                  ? _EmptyIconTile()
-                  : BlockIconTile(asset: _iconAsset!, size: 56),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: TextField(
-                controller: _name,
-                decoration: const InputDecoration(
-                  border: InputBorder.none,
-                  hintText: 'Block name',
-                ),
-                style: const TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w700,
-                ),
               ),
             ),
           ],
         ),
-      );
+      ),
+    );
+  }
+
+  Widget _header() => SheetHeader(
+    title: _isEditing ? 'Edit block' : 'New block',
+    leading: SheetAction('Cancel', onPressed: () => Navigator.pop(context)),
+    trailing: SheetAction(
+      'Save',
+      primary: true,
+      onPressed: _isValid ? _save : null,
+    ),
+  );
+
+  /// Name and icon can change without affecting the commitment.
+  Widget _identityCard() => ControlCard(
+    child: Row(
+      children: [
+        GestureDetector(
+          onTap: () async {
+            final picked = await IconPickerSheet.show(context, _iconAsset);
+            if (picked == null) return;
+            setState(() => _iconAsset = picked.isEmpty ? null : picked);
+          },
+          child: _iconAsset == null
+              ? _EmptyIconTile()
+              : BlockIconTile(asset: _iconAsset!, size: 56),
+        ),
+        const SizedBox(width: 14),
+        Expanded(
+          child: TextField(
+            controller: _name,
+            decoration: const InputDecoration(
+              border: InputBorder.none,
+              hintText: 'Block name',
+            ),
+            style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700),
+          ),
+        ),
+      ],
+    ),
+  );
 
   Widget _appsCard() => ControlCard(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const _CardLabel(
-              icon: Icons.apps_rounded,
-              text: 'Which apps do you want to limit?',
-            ),
-            const SizedBox(height: 12),
-            _PickerButton(
-              label: _apps.isEmpty
-                  ? 'Select apps'
-                  : '${_apps.length} app${_apps.length == 1 ? '' : 's'} selected',
-              onTap: () async {
-                final picked = await AppPickerSheet.show(
-                  context,
-                  _apps,
-                  // While locked, the apps already covered cannot be dropped.
-                  locked: _locked ? {...?widget.existing?.apps} : const {},
-                );
-                if (picked == null) return;
-                setState(() {
-                  _apps = picked.apps;
-                  // Presets bring their websites with them.
-                  _domains.addAll(picked.domains);
-                });
-              },
-            ),
-          ],
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _CardLabel(
+          icon: Icons.apps_rounded,
+          text: 'Which apps do you want to limit?',
         ),
-      );
+        const SizedBox(height: 12),
+        _PickerButton(
+          label: _apps.isEmpty && _categories.isEmpty && _excludedApps.isEmpty
+              ? 'Select apps'
+              : '${_apps.length} apps, ${_categories.length} categories, '
+                    '${_excludedApps.length} exclusions',
+          onTap: () async {
+            final picked = await AppPickerSheet.show(
+              context,
+              _apps,
+              allowCategories: true,
+              initialCategories: _categories,
+              initialExcludedApps: _excludedApps,
+              lockedCategories: _locked
+                  ? {...?widget.existing?.categories}
+                  : const {},
+              categoryRulesLocked: _locked,
+              // While locked, the apps already covered cannot be dropped.
+              locked: _locked ? {...?widget.existing?.apps} : const {},
+            );
+            if (picked == null || !mounted) return;
+            setState(() {
+              _apps = picked.apps;
+              _categories = picked.categories;
+              _excludedApps = picked.excludedApps;
+              // Presets bring their websites with them.
+              _domains.addAll(picked.domains);
+            });
+          },
+        ),
+      ],
+    ),
+  );
 
   /// Blocking the app and leaving the website open is the loophole everyone
   /// finds first, so it sits directly under the app picker rather than in some
   /// advanced section.
   Widget _websitesCard() => ControlCard(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const _CardLabel(
-              icon: Icons.language_rounded,
-              text: 'Block these sites too',
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _domainInput,
-              autocorrect: false,
-              // Save reads the pending text, so the header has to rebuild as it
-              // is typed or the button stays greyed out over a valid form.
-              onChanged: (_) => setState(() {}),
-              keyboardType: TextInputType.url,
-              textInputAction: TextInputAction.done,
-              decoration: InputDecoration(
-                hintText: 'instagram.com',
-                isDense: true,
-                filled: true,
-                fillColor: ControlColors.of(context).cardRaised,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(14),
-                  borderSide: BorderSide.none,
-                ),
-                suffixIcon: IconButton(
-                  icon: const Icon(Icons.add, size: 20),
-                  onPressed: _addDomain,
-                ),
-              ),
-              onSubmitted: (_) => _addDomain(),
-            ),
-            if (_domains.isNotEmpty) ...[
-              const SizedBox(height: 12),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  for (final domain in _domains)
-                    () {
-                      final pinned = _locked &&
-                          (widget.existing?.blockedDomains.contains(domain) ??
-                              false);
-                      return ControlChip(
-                        label: domain,
-                        selected: true,
-                        icon: pinned ? Icons.lock : Icons.close_rounded,
-                        onTap: pinned
-                            ? () {}
-                            : () => setState(() => _domains.remove(domain)),
-                      );
-                    }(),
-                ],
-              ),
-            ],
-            const SizedBox(height: 10),
-            const _Hint(
-              'Covers subdomains, so instagram.com also stops '
-              'www.instagram.com. Control reads the address bar of the common '
-              'browsers to do this, and nothing else about the page. A site '
-              'opened inside another app is still a way through.',
-            ),
-          ],
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _CardLabel(
+          icon: Icons.language_rounded,
+          text: 'Block these sites too',
         ),
-      );
+        const SizedBox(height: 12),
+        TextField(
+          controller: _domainInput,
+          autocorrect: false,
+          // Save reads the pending text, so the header has to rebuild as it
+          // is typed or the button stays greyed out over a valid form.
+          onChanged: (_) => setState(() {}),
+          keyboardType: TextInputType.url,
+          textInputAction: TextInputAction.done,
+          decoration: InputDecoration(
+            hintText: 'instagram.com',
+            isDense: true,
+            filled: true,
+            fillColor: ControlColors.of(context).cardRaised,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(14),
+              borderSide: BorderSide.none,
+            ),
+            suffixIcon: IconButton(
+              icon: const Icon(Icons.add, size: 20),
+              onPressed: _addDomain,
+            ),
+          ),
+          onSubmitted: (_) => _addDomain(),
+        ),
+        if (_domains.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final domain in _domains)
+                () {
+                  final pinned =
+                      _locked &&
+                      (widget.existing?.blockedDomains.contains(domain) ??
+                          false);
+                  return ControlChip(
+                    label: domain,
+                    selected: true,
+                    icon: pinned ? Icons.lock : Icons.close_rounded,
+                    onTap: pinned
+                        ? () {}
+                        : () => setState(() => _domains.remove(domain)),
+                  );
+                }(),
+            ],
+          ),
+        ],
+        const SizedBox(height: 10),
+        const _Hint(
+          'Covers subdomains, so instagram.com also stops '
+          'www.instagram.com. Control reads the address bar of the common '
+          'browsers to do this, and nothing else about the page. A site '
+          'opened inside another app is still a way through.',
+        ),
+      ],
+    ),
+  );
 
   void _addDomain() {
     final host = _pendingDomain;
@@ -408,132 +425,132 @@ class _BlockEditorSheetState extends State<BlockEditorSheet> {
   }
 
   Widget _modeCard() => ControlCard(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _CardLabel(
+          icon: Icons.tune_rounded,
+          text: 'How do you want to limit them?',
+        ),
+        const SizedBox(height: 12),
+        Row(
           children: [
-            const _CardLabel(
-              icon: Icons.tune_rounded,
-              text: 'How do you want to limit them?',
+            Expanded(
+              child: _ModeChip(
+                icon: Icons.vpn_key_outlined,
+                label: 'Condition',
+                selected: _mode == LimitMode.condition,
+                onTap: () => setState(() => _mode = LimitMode.condition),
+              ),
             ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: _ModeChip(
-                    icon: Icons.vpn_key_outlined,
-                    label: 'Condition',
-                    selected: _mode == LimitMode.condition,
-                    onTap: () => setState(() => _mode = LimitMode.condition),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: _ModeChip(
-                    icon: Icons.schedule_rounded,
-                    label: 'Time',
-                    selected: _mode == LimitMode.time,
-                    onTap: () => setState(() => _mode = LimitMode.time),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            const _Hint(
-              'Place and Device rules need location and Bluetooth signals that '
-              'are not wired up yet.',
+            const SizedBox(width: 10),
+            Expanded(
+              child: _ModeChip(
+                icon: Icons.schedule_rounded,
+                label: 'Time',
+                selected: _mode == LimitMode.time,
+                onTap: () => setState(() => _mode = LimitMode.time),
+              ),
             ),
           ],
         ),
-      );
+        const SizedBox(height: 10),
+        const _Hint(
+          'Place and Device rules need location and Bluetooth signals that '
+          'are not wired up yet.',
+        ),
+      ],
+    ),
+  );
 
   // Time ---------------------------------------------------------------------
 
   Widget _timeCard() => ControlCard(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const _CardLabel(
-              icon: Icons.schedule_rounded,
-              text: 'Use the apps you selected on a schedule',
-            ),
-            const SizedBox(height: 14),
-            for (var i = 0; i < _ranges.length; i++)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: Row(
-                  children: [
-                    _TimeButton(
-                      time: _ranges[i].start,
-                      onPicked: (value) =>
-                          setState(() => _ranges[i].start = value),
-                    ),
-                    const Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 12),
-                      child: Icon(Icons.arrow_forward, size: 18),
-                    ),
-                    _TimeButton(
-                      time: _ranges[i].end,
-                      onPicked: (value) =>
-                          setState(() => _ranges[i].end = value),
-                    ),
-                    const Spacer(),
-                    if (_ranges.length > 1)
-                      IconButton(
-                        onPressed: () => setState(() => _ranges.removeAt(i)),
-                        icon: const Icon(Icons.close, size: 18),
-                      ),
-                  ],
-                ),
-              ),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: ControlChip(
-                label: 'Add range',
-                icon: Icons.add,
-                selected: false,
-                onTap: () => setState(
-                  () => _ranges.add(
-                    _Range(
-                      const TimeOfDay(hour: 20, minute: 0),
-                      const TimeOfDay(hour: 22, minute: 0),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(height: 18),
-            const _CardLabel(
-              icon: Icons.calendar_today_rounded,
-              text: 'On these days',
-            ),
-            const SizedBox(height: 12),
-            WeekdayPicker(
-              selected: _weekdays,
-              onChanged: (days) => setState(() => _weekdays = days),
-            ),
-            const SizedBox(height: 18),
-            ControlSegmented<RulePolarity>(
-              value: _polarity,
-              options: const [
-                (RulePolarity.blockDuring, 'Block during'),
-                (RulePolarity.unblockDuring, 'Unblock during'),
-              ],
-              onChanged: (value) => setState(() => _polarity = value),
-            ),
-            const SizedBox(height: 10),
-            _Hint(
-              _polarity == RulePolarity.blockDuring
-                  ? 'Apps are blocked during these times on the days you picked.'
-                  : 'Apps are blocked except during these times on the days you '
-                      'picked.',
-            ),
-            if (_weekdays.isEmpty) ...[
-              const SizedBox(height: 8),
-              const _Hint('Pick at least one day, or the schedule never runs.'),
-            ],
-          ],
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _CardLabel(
+          icon: Icons.schedule_rounded,
+          text: 'Use the apps you selected on a schedule',
         ),
-      );
+        const SizedBox(height: 14),
+        for (var i = 0; i < _ranges.length; i++)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                _TimeButton(
+                  time: _ranges[i].start,
+                  onPicked: (value) => setState(() => _ranges[i].start = value),
+                ),
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 12),
+                  child: Icon(Icons.arrow_forward, size: 18),
+                ),
+                _TimeButton(
+                  time: _ranges[i].end,
+                  onPicked: (value) => setState(() => _ranges[i].end = value),
+                ),
+                if (_ranges.length > 1)
+                  IconButton(
+                    onPressed: () => setState(() => _ranges.removeAt(i)),
+                    icon: const Icon(Icons.close, size: 18),
+                  ),
+              ],
+            ),
+          ),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: ControlChip(
+            label: 'Add range',
+            icon: Icons.add,
+            selected: false,
+            onTap: () => setState(
+              () => _ranges.add(
+                _Range(
+                  const TimeOfDay(hour: 20, minute: 0),
+                  const TimeOfDay(hour: 22, minute: 0),
+                ),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 18),
+        const _CardLabel(
+          icon: Icons.calendar_today_rounded,
+          text: 'On these days',
+        ),
+        const SizedBox(height: 12),
+        WeekdayPicker(
+          selected: _weekdays,
+          onChanged: (days) => setState(() => _weekdays = days),
+        ),
+        const SizedBox(height: 18),
+        ControlSegmented<RulePolarity>(
+          value: _polarity,
+          options: const [
+            (RulePolarity.blockDuring, 'Block during'),
+            (RulePolarity.unblockDuring, 'Unblock during'),
+          ],
+          onChanged: (value) => setState(() => _polarity = value),
+        ),
+        const SizedBox(height: 10),
+        _Hint(
+          _polarity == RulePolarity.blockDuring
+              ? 'Apps are blocked during these times on the days you picked.'
+              : 'Apps are blocked except during these times on the days you '
+                    'picked.',
+        ),
+        if (_weekdays.isEmpty) ...[
+          const SizedBox(height: 8),
+          const _Hint('Pick at least one day, or the schedule never runs.'),
+        ],
+      ],
+    ),
+  );
 
   // Conditions ---------------------------------------------------------------
 
@@ -601,7 +618,8 @@ class _BlockEditorSheetState extends State<BlockEditorSheet> {
           _HabitTile(
             icon: Icons.timelapse_rounded,
             label: 'App time',
-            subtitle: '$_earnMinutes min in '
+            subtitle:
+                '$_earnMinutes min in '
                 '${_earnApps.length} app${_earnApps.length == 1 ? '' : 's'}',
             enabled: true,
             selected: _appTimeOn,
@@ -613,10 +631,12 @@ class _BlockEditorSheetState extends State<BlockEditorSheet> {
                   label: _earnApps.isEmpty
                       ? 'Apps that count towards it'
                       : '${_earnApps.length} app'
-                          '${_earnApps.length == 1 ? '' : 's'} count',
+                            '${_earnApps.length == 1 ? '' : 's'} count',
                   onTap: () async {
-                    final picked =
-                        await AppPickerSheet.show(context, _earnApps);
+                    final picked = await AppPickerSheet.show(
+                      context,
+                      _earnApps,
+                    );
                     if (picked != null) {
                       setState(() => _earnApps = picked.apps);
                     }
@@ -637,7 +657,8 @@ class _BlockEditorSheetState extends State<BlockEditorSheet> {
           _HabitTile(
             icon: Icons.timer_outlined,
             label: 'Focus timer',
-            subtitle: '${formatDuration(Duration(minutes: _focusMinutes))} '
+            subtitle:
+                '${formatDuration(Duration(minutes: _focusMinutes))} '
                 'of pomodoro or stopwatch',
             enabled: true,
             selected: _focusOn,
@@ -650,8 +671,7 @@ class _BlockEditorSheetState extends State<BlockEditorSheet> {
                   min: 15,
                   max: 720,
                   step: 15,
-                  format: (value) =>
-                      formatDuration(Duration(minutes: value)),
+                  format: (value) => formatDuration(Duration(minutes: value)),
                   onChanged: (value) => setState(() => _focusMinutes = value),
                 ),
                 const SizedBox(height: 8),
@@ -668,7 +688,7 @@ class _BlockEditorSheetState extends State<BlockEditorSheet> {
             subtitle: _placeCentre == null
                 ? 'Check in at a place, inside a time window'
                 : '$_placeName, ${_placeRadius.round()} m, '
-                    '${_placeFrom.format(context)} to ${_placeTo.format(context)}',
+                      '${_placeFrom.format(context)} to ${_placeTo.format(context)}',
             enabled: true,
             selected: _placeOn,
             onToggle: (value) => setState(() => _placeOn = value),
@@ -708,7 +728,9 @@ class _BlockEditorSheetState extends State<BlockEditorSheet> {
             _blockAgainAfter == null
                 ? 'Once earned, the apps stay open until midnight.'
                 : 'The apps lock again '
-                    '${_humaniseReArm(_blockAgainAfter!)} after you earn them.',
+                      '${_humaniseReArm(_blockAgainAfter!)} after you earn them. '
+                      'One earned allowance per day; today\'s completed habits '
+                      'cannot renew it.',
           ),
         ],
       ),
@@ -775,7 +797,10 @@ class _BlockEditorSheetState extends State<BlockEditorSheet> {
           style: TextStyle(fontWeight: FontWeight.w600),
         ),
         const SizedBox(height: 10),
-        Row(
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          crossAxisAlignment: WrapCrossAlignment.center,
           children: [
             _TimeButton(
               time: _placeFrom,
@@ -830,7 +855,9 @@ class _BlockEditorSheetState extends State<BlockEditorSheet> {
 
     if (reading == null) {
       messenger.showSnackBar(
-        const SnackBar(content: Text('No location fix yet. Try again outside.')),
+        const SnackBar(
+          content: Text('No location fix yet. Try again outside.'),
+        ),
       );
       return;
     }
@@ -1007,19 +1034,17 @@ class _BlockEditorSheetState extends State<BlockEditorSheet> {
     Navigator.of(context).pop();
   }
 
-  Future<void> _commit(
-    ControlStore store,
-    String name,
-    Block? existing,
-  ) async {
+  Future<void> _commit(ControlStore store, String name, Block? existing) async {
     if (_locked && existing != null) {
-      // A locked block can be renamed, re-iconed, and tightened. Apps and sites
-      // come from the form because they may have grown; everything else is
+      // A locked block can be renamed, re-iconed, and tightened. Selection rules
+      // come from the form because they may have tightened; everything else is
       // carried over untouched, because the form could not change it.
       await store.updateBlock(
         existing.copyWith(
           name: name,
           apps: _apps,
+          categories: _categories,
+          excludedApps: _excludedApps,
           blockedDomains: _domains,
           iconAsset: _iconAsset,
           clearIconAsset: _iconAsset == null,
@@ -1034,6 +1059,8 @@ class _BlockEditorSheetState extends State<BlockEditorSheet> {
             name: name,
             mode: LimitMode.time,
             apps: _apps,
+            categories: _categories,
+            excludedApps: _excludedApps,
             blockedDomains: _domains,
             iconAsset: _iconAsset,
             schedule: [
@@ -1052,6 +1079,8 @@ class _BlockEditorSheetState extends State<BlockEditorSheet> {
             name: name,
             mode: LimitMode.condition,
             apps: _apps,
+            categories: _categories,
+            excludedApps: _excludedApps,
             blockedDomains: _domains,
             iconAsset: _iconAsset,
             conditions: _buildConditions(),
@@ -1077,9 +1106,9 @@ class _Range {
   _Range(this.start, this.end);
 
   factory _Range.fromRange(TimeRange range) => _Range(
-        TimeOfDay(hour: range.startMinute ~/ 60, minute: range.startMinute % 60),
-        TimeOfDay(hour: range.endMinute ~/ 60, minute: range.endMinute % 60),
-      );
+    TimeOfDay(hour: range.startMinute ~/ 60, minute: range.startMinute % 60),
+    TimeOfDay(hour: range.endMinute ~/ 60, minute: range.endMinute % 60),
+  );
 
   TimeOfDay start;
   TimeOfDay end;
@@ -1104,10 +1133,12 @@ class _LockedBanner extends StatelessWidget {
             child: Text(
               remaining == null
                   ? 'This block is locked. You can rename it, change its icon, '
-                      'and add more apps or sites. Nothing can be removed.'
+                        'add apps, sites or categories, and remove category '
+                        'exclusions. Existing coverage cannot be removed.'
                   : 'Locked for another ${_humanise(remaining)}. You can '
-                      'rename it, change its icon, and add more apps or sites. '
-                      'Nothing can be removed.',
+                        'rename it, change its icon, add apps, sites or categories, '
+                        'and remove category exclusions. Existing coverage cannot '
+                        'be removed.',
               style: TextStyle(color: colors.textMuted, height: 1.35),
             ),
           ),
@@ -1190,8 +1221,11 @@ class _EmptyIconTile extends StatelessWidget {
         color: colors.cardRaised,
         borderRadius: BorderRadius.circular(16),
       ),
-      child: Icon(Icons.add_photo_alternate_outlined,
-          color: colors.textMuted, size: 22),
+      child: Icon(
+        Icons.add_photo_alternate_outlined,
+        color: colors.textMuted,
+        size: 22,
+      ),
     );
   }
 }
@@ -1227,8 +1261,12 @@ class _Stepper extends StatelessWidget {
       ),
       child: Row(
         children: [
-          _button(context, Icons.remove, value > min,
-              () => onChanged((value - step).clamp(min, max))),
+          _button(
+            context,
+            Icons.remove,
+            value > min,
+            () => onChanged((value - step).clamp(min, max)),
+          ),
           Expanded(
             child: Text(
               format(value),
@@ -1236,8 +1274,12 @@ class _Stepper extends StatelessWidget {
               style: const TextStyle(fontWeight: FontWeight.w600),
             ),
           ),
-          _button(context, Icons.add, value < max,
-              () => onChanged((value + step).clamp(min, max))),
+          _button(
+            context,
+            Icons.add,
+            value < max,
+            () => onChanged((value + step).clamp(min, max)),
+          ),
         ],
       ),
     );
@@ -1261,11 +1303,7 @@ class _Stepper extends StatelessWidget {
           color: colors.cardRaised,
           borderRadius: BorderRadius.circular(10),
         ),
-        child: Icon(
-          icon,
-          size: 17,
-          color: enabled ? null : colors.textMuted,
-        ),
+        child: Icon(icon, size: 17, color: enabled ? null : colors.textMuted),
       ),
     );
   }
@@ -1342,10 +1380,7 @@ class _HabitTile extends StatelessWidget {
                       ],
                     ),
                   ),
-                  Switch(
-                    value: selected,
-                    onChanged: enabled ? onToggle : null,
-                  ),
+                  Switch(value: selected, onChanged: enabled ? onToggle : null),
                 ],
               ),
               if (selected && child != null)
@@ -1369,17 +1404,14 @@ class _CardLabel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Row(
-        children: [
-          Icon(icon, size: 18, color: ControlColors.of(context).textMuted),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              text,
-              style: const TextStyle(fontWeight: FontWeight.w600),
-            ),
-          ),
-        ],
-      );
+    children: [
+      Icon(icon, size: 18, color: ControlColors.of(context).textMuted),
+      const SizedBox(width: 8),
+      Expanded(
+        child: Text(text, style: const TextStyle(fontWeight: FontWeight.w600)),
+      ),
+    ],
+  );
 }
 
 class _Hint extends StatelessWidget {
@@ -1389,13 +1421,13 @@ class _Hint extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Text(
-        text,
-        style: TextStyle(
-          color: ControlColors.of(context).textMuted,
-          fontSize: 12,
-          height: 1.4,
-        ),
-      );
+    text,
+    style: TextStyle(
+      color: ControlColors.of(context).textMuted,
+      fontSize: 12,
+      height: 1.4,
+    ),
+  );
 }
 
 class _PickerButton extends StatelessWidget {
@@ -1488,8 +1520,10 @@ class _TimeButton extends StatelessWidget {
     final colors = ControlColors.of(context);
     return GestureDetector(
       onTap: () async {
-        final picked =
-            await showTimePicker(context: context, initialTime: time);
+        final picked = await showTimePicker(
+          context: context,
+          initialTime: time,
+        );
         if (picked != null) onPicked(picked);
       },
       behavior: HitTestBehavior.opaque,

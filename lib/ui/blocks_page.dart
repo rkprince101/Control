@@ -2,11 +2,11 @@ import 'package:control_core/control_core.dart';
 import 'package:flutter/material.dart';
 
 import '../data/descriptions.dart';
-import '../data/focus.dart';
 import '../main.dart';
 import '../state/control_store.dart';
 import 'block_editor_sheet.dart';
 import 'control_page.dart';
+import 'expressive_progress.dart';
 import 'focus_stats_sheet.dart';
 import 'block_icon.dart';
 import 'lock_sheet.dart';
@@ -21,12 +21,15 @@ class BlocksPage extends StatelessWidget {
     final store = StoreScope.of(context);
 
     return ControlPage(
-      title: 'blocks',
+      title: 'Make room',
+      eyebrow: 'CONTROL',
+      subtitle: 'A little intention. More room for your day.',
       children: [
         if (!store.accessibilityEnabled) ...[
           _Warning(
-            text: 'Blocks are not being enforced. Turn on App blocking to make '
-                'them real.',
+            text:
+                'Blocks are not being enforced. Turn on App blocking to apply '
+                'your rules.',
             actionLabel: 'Fix',
             onAction: store.openAccessibilitySettings,
           ),
@@ -34,14 +37,71 @@ class BlocksPage extends StatelessWidget {
         ],
         if (store.clockTampered) ...[
           _Warning(
-            text: 'The device clock is behind time Control has already seen. '
-                'Locks are being counted from the later time.',
+            text:
+                'The device clock differs from Control\'s protection clock. '
+                'Locks continue using elapsed time, not the changed clock.',
           ),
           const SizedBox(height: 12),
         ],
+        HeroCard(
+          tone: Theme.of(context).colorScheme.primaryContainer,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(
+                Icons.spa_outlined,
+                color: Theme.of(context).colorScheme.onPrimaryContainer,
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Time for what matters.',
+                style: Theme.of(context).textTheme.headlineLarge?.copyWith(
+                  color: Theme.of(context).colorScheme.onPrimaryContainer,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                '${formatDuration(store.focusToday)} focused today',
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  color: Theme.of(context).colorScheme.onPrimaryContainer,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '${store.blocks.where((block) => block.enabled).length} '
+                'rules enabled',
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onPrimaryContainer,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 24),
+        const SectionLabel('Your rules'),
         if (store.blocks.isEmpty)
-          const EmptyState(
-            message: 'No blocks yet.\nAdd one to put an app behind a rule.',
+          ControlCard(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'No blocks yet',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Choose what needs a little space. '
+                  'Add an app, a category, or a website behind a rule.',
+                ),
+                const SizedBox(height: 16),
+                FilledButton.icon(
+                  onPressed: () => BlockEditorSheet.show(context),
+                  icon: const Icon(Icons.add_rounded),
+                  label: const Text('Create a block'),
+                ),
+              ],
+            ),
           )
         else
           for (final block in store.blocks)
@@ -65,12 +125,18 @@ class _Warning extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = ControlColors.of(context);
     return ControlCard(
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(Icons.warning_amber_rounded, color: colors.medium),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(text, style: TextStyle(color: colors.textMuted)),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(Icons.warning_amber_rounded, color: colors.medium),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(text, style: TextStyle(color: colors.textMuted)),
+              ),
+            ],
           ),
           if (actionLabel != null)
             TextButton(onPressed: onAction, child: Text(actionLabel!)),
@@ -98,77 +164,116 @@ class BlockCard extends StatelessWidget {
       onTap: () => BlockEditorSheet.show(context, existing: block),
       behavior: HitTestBehavior.opaque,
       child: ControlCard(
-      padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
-      child: Column(
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              BlockIcon(block: block),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.only(top: 4),
-                  child: Wrap(
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    spacing: 8,
-                    runSpacing: 4,
-                    children: [
-                      Text(
-                        block.name,
-                        style: Theme.of(context).textTheme.titleLarge,
-                      ),
-                      Pill(block.mode.name.toUpperCase()),
-                    ],
-                  ),
-                ),
-              ),
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Switch(
-                    value: block.enabled,
-                    onChanged: (value) => _toggle(context, value),
-                  ),
-                  const SizedBox(width: 4),
-                  _LockButton(block: block, locked: locked),
-                ],
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          _DetailRow(block: block, decision: decision),
-          if (ControlStore.hasFocusCondition(block)) ...[
-            const SizedBox(height: 10),
-            _FocusControls(block: block),
-          ],
-          for (final condition
-              in block.conditions.whereType<PlaceCheckInCondition>()) ...[
-            const SizedBox(height: 10),
-            _CheckInButton(block: block, condition: condition),
-          ],
-          if (decision != null && decision.conditionProgress.isNotEmpty) ...[
-            const SizedBox(height: 10),
-            for (final progress in decision.conditionProgress)
-              Padding(
-                padding: const EdgeInsets.only(top: 6),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(4),
-                  child: LinearProgressIndicator(
-                    value: progress.progress,
-                    minHeight: 6,
-                    backgroundColor: colors.cardRaised,
-                    valueColor: AlwaysStoppedAnimation(
-                      progress.met ? colors.light : colors.medium,
+        padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                BlockIcon(block: block),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Wrap(
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      spacing: 8,
+                      runSpacing: 4,
+                      children: [
+                        Text(
+                          block.name,
+                          style: Theme.of(context).textTheme.titleLarge,
+                        ),
+                        Pill(block.mode.name.toUpperCase()),
+                      ],
                     ),
                   ),
                 ),
-              ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                Semantics(
+                  label: 'Enable ${block.name}',
+                  child: Switch(
+                    value: block.enabled,
+                    onChanged: (value) => _toggle(context, value),
+                  ),
+                ),
+                _LockButton(block: block, locked: locked),
+                TextButton.icon(
+                  onPressed: () =>
+                      BlockEditorSheet.show(context, existing: block),
+                  icon: const Icon(Icons.edit_outlined, size: 18),
+                  label: const Text('Edit rule'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Text(
+              [
+                '${block.apps.length} selected apps',
+                if (block.categories.isNotEmpty)
+                  'Categories: ${block.categories.join(', ')}',
+                if (block.excludedApps.isNotEmpty)
+                  '${block.excludedApps.length} category exclusions '
+                      '(not exceptions to selected apps or other rules)',
+                if (block.blockedDomains.isNotEmpty)
+                  '${block.blockedDomains.length} websites',
+              ].join(' / '),
+              style: TextStyle(color: colors.textMuted, height: 1.4),
+            ),
+            const SizedBox(height: 12),
+            _DetailRow(block: block, decision: decision),
+            if (ControlStore.hasFocusCondition(block)) ...[
+              const SizedBox(height: 10),
+              _FocusControls(block: block),
+            ],
+            for (final condition
+                in block.conditions.whereType<PlaceCheckInCondition>()) ...[
+              const SizedBox(height: 10),
+              _CheckInButton(block: block, condition: condition),
+            ],
+            if (decision != null && decision.conditionProgress.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              for (final progress in decision.conditionProgress)
+                Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '${_progressLabel(progress)}: '
+                        '${(progress.progress.clamp(0.0, 1.0) * 100).round()}%',
+                        style: Theme.of(context).textTheme.labelLarge,
+                      ),
+                      const SizedBox(height: 4),
+                      ExpressiveProgress(
+                        value: progress.progress,
+                        semanticsLabel: _progressLabel(progress),
+                        trackColor: colors.cardRaised,
+                        color: progress.met ? colors.light : colors.medium,
+                      ),
+                    ],
+                  ),
+                ),
+            ],
           ],
-        ],
-      ),
+        ),
       ),
     );
+  }
+
+  String _progressLabel(ConditionProgress progress) {
+    final condition = block.conditions
+        .where((condition) => condition.id == progress.conditionId)
+        .firstOrNull;
+    return condition == null ? 'Condition' : describeCondition(condition);
   }
 
   Future<void> _toggle(BuildContext context, bool value) async {
@@ -198,32 +303,25 @@ class _LockButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = ControlColors.of(context);
-    return InkWell(
-      onTap: () => LockSheet.show(context, block),
-      customBorder: const CircleBorder(),
-      child: Container(
-        width: 34,
-        height: 34,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: locked
-              ? colors.medium.withValues(alpha: 0.22)
-              : colors.cardRaised,
-        ),
-        child: Icon(
-          locked ? Icons.lock : Icons.lock_open,
-          size: 17,
-          color: locked ? colors.medium : colors.textMuted,
-        ),
+    return IconButton.filledTonal(
+      tooltip: locked ? 'Manage lock for ${block.name}' : 'Lock ${block.name}',
+      onPressed: () => LockSheet.show(context, block),
+      constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+      icon: Icon(
+        locked ? Icons.lock : Icons.lock_open,
+        size: 20,
+        color: locked ? colors.medium : colors.textMuted,
       ),
     );
   }
 }
 
-/// Start/stop for the focus timer, plus the way into its statistics.
+/// The focus timer's face on the card, plus the way into its statistics.
 ///
 /// Only on blocks that are actually paid for with focus time: a start button on
-/// a schedule block would do nothing and teach people to ignore it.
+/// a schedule block would do nothing and teach people to ignore it. Tapping it
+/// opens the timer sheet rather than acting straight away, so a stray tap can
+/// never end a session.
 class _FocusControls extends StatelessWidget {
   const _FocusControls({required this.block});
 
@@ -233,100 +331,90 @@ class _FocusControls extends StatelessWidget {
   Widget build(BuildContext context) {
     final store = StoreScope.of(context);
     final colors = ControlColors.of(context);
-    final running = store.runningFocus;
-    final isThisBlock = running != null && running.blockId == block.id;
+    final (icon, label, live) = _state(store);
 
     return Row(
       children: [
         Expanded(
-          child: GestureDetector(
-            onTap: () => _press(context, running, isThisBlock),
-            behavior: HitTestBehavior.opaque,
-            child: Container(
-              padding: const EdgeInsets.symmetric(vertical: 12),
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: isThisBlock
-                    ? colors.light.withValues(alpha: 0.16)
-                    : colors.cardRaised,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(
-                  color: isThisBlock ? colors.light : Colors.transparent,
-                ),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    isThisBlock
-                        ? Icons.stop_rounded
-                        : Icons.play_arrow_rounded,
-                    size: 18,
-                    color: isThisBlock ? colors.light : null,
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    _label(store, running, isThisBlock),
+          child: FilledButton.tonal(
+            onPressed: () => FocusTimerSheet.show(context, block),
+            style: FilledButton.styleFrom(
+              minimumSize: const Size(48, 48),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+            ),
+            child: Row(
+              children: [
+                Icon(icon, size: 18, color: live ? colors.light : null),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    label,
                     style: TextStyle(
                       fontWeight: FontWeight.w600,
-                      color: isThisBlock ? colors.light : null,
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                      color: live ? colors.light : null,
                     ),
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
         ),
         const SizedBox(width: 8),
-        GestureDetector(
-          onTap: () => FocusStatsSheet.show(context, block),
-          behavior: HitTestBehavior.opaque,
-          child: Container(
-            width: 44,
-            height: 44,
-            decoration: BoxDecoration(
-              color: colors.cardRaised,
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: Icon(Icons.insights_rounded, size: 19, color: colors.textMuted),
-          ),
+        IconButton.filledTonal(
+          tooltip: 'Focus statistics',
+          onPressed: () => FocusStatsSheet.show(context, block),
+          constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+          icon: const Icon(Icons.insights_rounded),
         ),
       ],
     );
   }
 
-  String _label(ControlStore store, FocusSession? running, bool isThisBlock) {
-    if (isThisBlock) {
-      return formatClock(running!.lengthAt(DateTime.now()));
+  /// Icon, words, and whether something is counting right now.
+  (IconData, String, bool) _state(ControlStore store) {
+    final running = store.runningFocus;
+    if (running != null && running.blockId == block.id) {
+      final length = store.focusLengthOf(running);
+      final planned = running.plannedWork;
+      final clock = planned == null
+          ? formatClock(length)
+          : '${formatClock(planned - length < Duration.zero ? Duration.zero : planned - length)} left';
+      return running.isPaused
+          ? (Icons.pause_rounded, 'Paused  $clock', false)
+          : (Icons.timer_outlined, clock, true);
     }
-    if (running != null) return 'Timer busy';
+
+    final pause = store.focusBreak;
+    if (pause != null && pause.blockId == block.id) {
+      return (
+        Icons.self_improvement_rounded,
+        'Break  ${formatClock(pause.remainingAt(store.focusNow()))}',
+        true,
+      );
+    }
+
+    final finished = store.lastFinishedFocus;
+    if (finished != null && finished.blockId == block.id) {
+      return (
+        Icons.check_circle_rounded,
+        'Done  ${formatDuration(store.focusLengthOf(finished))} banked',
+        false,
+      );
+    }
+
+    if (running != null) {
+      return (Icons.play_arrow_rounded, 'Another timer is running', false);
+    }
 
     final target = block.conditions.whereType<FocusCondition>().first.target;
     final done = store.focusToday;
-    if (done >= target) return 'Target met';
-    return 'Start  ${formatDuration(done)} / ${formatDuration(target)}';
-  }
-
-  Future<void> _press(
-    BuildContext context,
-    FocusSession? running,
-    bool isThisBlock,
-  ) async {
-    final store = StoreScope.of(context);
-    if (isThisBlock) {
-      await store.stopFocus();
-      return;
-    }
-    if (running != null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Another timer is already running. Stop it first.'),
-        ),
-      );
-      return;
-    }
-    if (!context.mounted) return;
-    await FocusStartSheet.show(context, block);
+    if (done >= target) return (Icons.play_arrow_rounded, 'Target met', false);
+    return (
+      Icons.play_arrow_rounded,
+      'Start  ${formatDuration(done)} / ${formatDuration(target)}',
+      false,
+    );
   }
 }
 
@@ -427,24 +515,30 @@ class _DetailRow extends StatelessWidget {
         color: colors.cardRaised,
         borderRadius: BorderRadius.circular(14),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(_icon, size: 16, color: colors.textMuted),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              _summary(context),
-              style: Theme.of(context).textTheme.bodyMedium,
-            ),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(_icon, size: 20, color: colors.textMuted),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  _summary(context),
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+              ),
+            ],
           ),
-          const SizedBox(width: 8),
+          const SizedBox(height: 10),
           Pill(
             block.enabled ? (blocking ? 'blocked' : 'unlocked') : 'off',
             color: !block.enabled
                 ? colors.textMuted
                 : blocking
-                    ? colors.heavy
-                    : colors.light,
+                ? colors.heavy
+                : colors.light,
           ),
         ],
       ),
@@ -452,20 +546,21 @@ class _DetailRow extends StatelessWidget {
   }
 
   IconData get _icon => switch (block.mode) {
-        LimitMode.time => Icons.schedule_rounded,
-        LimitMode.condition => Icons.vpn_key_outlined,
-        LimitMode.place => Icons.place_outlined,
-        LimitMode.device => Icons.settings_remote_rounded,
-      };
+    LimitMode.time => Icons.schedule_rounded,
+    LimitMode.condition => Icons.vpn_key_outlined,
+    LimitMode.place => Icons.place_outlined,
+    LimitMode.device => Icons.settings_remote_rounded,
+  };
 
   String _summary(BuildContext context) => switch (block.mode) {
-        LimitMode.time => _scheduleSummary(),
-        LimitMode.condition => _conditionSummary(),
-        LimitMode.place => block.zone?.name ?? 'No place set',
-        LimitMode.device => block.devices.isEmpty
-            ? 'No device set'
-            : block.devices.map((d) => d.label).join(', '),
-      };
+    LimitMode.time => _scheduleSummary(),
+    LimitMode.condition => _conditionSummary(),
+    LimitMode.place => block.zone?.name ?? 'No place set',
+    LimitMode.device =>
+      block.devices.isEmpty
+          ? 'No device set'
+          : block.devices.map((d) => d.label).join(', '),
+  };
 
   String _scheduleSummary() {
     if (block.schedule.isEmpty) return 'No schedule set';
@@ -482,5 +577,4 @@ class _DetailRow extends StatelessWidget {
     if (block.conditions.isEmpty) return 'No habit set';
     return block.conditions.map(describeCondition).join(' + ');
   }
-
 }
