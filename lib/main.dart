@@ -265,14 +265,6 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
               : ControlDrawer(
                   selected: _destination,
                   onSelect: _selectFromDrawer,
-                  onOpenRule: (block) {
-                    _scaffold.currentState?.closeDrawer();
-                    BlockEditorSheet.show(context, existing: block);
-                  },
-                  onNewRule: () {
-                    _scaffold.currentState?.closeDrawer();
-                    BlockEditorSheet.show(context);
-                  },
                 ),
           // The search bar floats over content, so the status bar keeps its own
           // band of background rather than letting cards slide up under it.

@@ -46,7 +46,9 @@ location rule, the map is drawn from tiles downloaded from
 for the area you are looking at, so OpenStreetMap's servers receive your IP
 address and that area, as with any website. Their use of it is covered by the
 [OpenStreetMap Foundation privacy policy](https://osmfoundation.org/wiki/Privacy_Policy).
-Nothing else in the app uses the internet.
+Nothing else in the app uses the internet. Links you tap, such as GitHub, Buy
+Me a Coffee or Google Play, open in your browser or their own app, under their
+own policies.
 
 ## Device admin and device owner
 

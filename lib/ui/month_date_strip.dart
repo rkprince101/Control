@@ -13,12 +13,22 @@ class MonthDateStrip extends StatefulWidget {
     required this.selected,
     required this.today,
     required this.onSelect,
+    this.lastDay,
+    this.progressFor,
     super.key,
   });
 
   final DateTime selected;
   final DateTime today;
   final ValueChanged<DateTime> onSelect;
+
+  /// Days after this one are shown but cannot be picked. Null lets any day
+  /// of the month be picked, as todos can be planned ahead.
+  final DateTime? lastDay;
+
+  /// How much of a day got done, from 0 to 1, drawn as a thin bar under its
+  /// date; null for a day with nothing to do. No bars when this is null.
+  final double? Function(DateTime day)? progressFor;
 
   @override
   State<MonthDateStrip> createState() => _MonthDateStripState();
@@ -112,7 +122,10 @@ class _MonthDateStripState extends State<MonthDateStrip> {
     final showNext = !_isCurrentMonth;
     final count = 1 + _daysInMonth + (showNext ? 1 : 0);
     return SizedBox(
-      height: MediaQuery.textScalerOf(context).scale(40) + 26,
+      height:
+          MediaQuery.textScalerOf(context).scale(40) +
+          26 +
+          (widget.progressFor == null ? 0 : 6),
       child: ListView.builder(
         controller: _scroll,
         scrollDirection: Axis.horizontal,
@@ -129,15 +142,21 @@ class _MonthDateStripState extends State<MonthDateStrip> {
           }
           if (index <= _daysInMonth) {
             final day = DateTime(_month.year, _month.month, index);
+            final lastDay = widget.lastDay;
+            final enabled = lastDay == null || !day.isAfter(lastDay);
             return _DayCard(
               weekday: _weekdays[day.weekday - 1],
               day: day,
               selected: day == widget.selected,
               isToday: day == widget.today,
-              onTap: () {
-                widget.onSelect(day);
-                _scrollTo(index);
-              },
+              progress: enabled ? widget.progressFor?.call(day) : null,
+              showsProgress: widget.progressFor != null,
+              onTap: enabled
+                  ? () {
+                      widget.onSelect(day);
+                      _scrollTo(index);
+                    }
+                  : null,
             );
           }
           final next = DateTime(_month.year, _month.month + 1);
@@ -160,13 +179,22 @@ class _DayCard extends StatelessWidget {
     required this.selected,
     required this.isToday,
     required this.onTap,
+    this.progress,
+    this.showsProgress = false,
   });
 
   final String weekday;
   final DateTime day;
   final bool selected;
   final bool isToday;
-  final VoidCallback onTap;
+
+  /// Null for a day that cannot be picked.
+  final VoidCallback? onTap;
+
+  final double? progress;
+
+  /// Keeps every card the same height when some have a bar and some do not.
+  final bool showsProgress;
 
   @override
   Widget build(BuildContext context) {
@@ -183,44 +211,78 @@ class _DayCard extends StatelessWidget {
         ? scheme.onPrimaryContainer
         : scheme.onSurface;
 
+    final progress = this.progress;
+    final bar = !showsProgress
+        ? null
+        : Padding(
+            padding: const EdgeInsets.only(top: 3),
+            child: SizedBox(
+              width: 24,
+              height: 3,
+              child: progress == null
+                  ? null
+                  : ClipRRect(
+                      borderRadius: BorderRadius.circular(2),
+                      child: LinearProgressIndicator(
+                        value: progress.clamp(0.0, 1.0),
+                        minHeight: 3,
+                        color: selected ? scheme.onPrimary : scheme.primary,
+                        backgroundColor:
+                            (selected
+                                    ? scheme.onPrimary
+                                    : scheme.onSurfaceVariant)
+                                .withValues(alpha: 0.2),
+                      ),
+                    ),
+            ),
+          );
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 4),
       child: Semantics(
         button: true,
+        enabled: onTap != null,
         selected: selected,
-        label: MaterialLocalizations.of(context).formatFullDate(day),
+        label: [
+          MaterialLocalizations.of(context).formatFullDate(day),
+          if (progress != null) '${(progress * 100).round()}% done',
+        ].join(', '),
         child: ExcludeSemantics(
-          child: Material(
-            color: background,
-            borderRadius: BorderRadius.circular(18),
-            child: InkWell(
-              onTap: onTap,
+          child: Opacity(
+            opacity: onTap == null ? 0.4 : 1,
+            child: Material(
+              color: background,
               borderRadius: BorderRadius.circular(18),
-              child: SizedBox(
-                width: 52,
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      weekday,
-                      style: theme.textTheme.labelSmall?.copyWith(
-                        fontWeight: FontWeight.w700,
-                        color: selected
-                            ? foreground.withValues(alpha: 0.8)
-                            : isToday
-                            ? foreground
-                            : scheme.onSurfaceVariant,
+              child: InkWell(
+                onTap: onTap,
+                borderRadius: BorderRadius.circular(18),
+                child: SizedBox(
+                  width: 52,
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        weekday,
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          fontWeight: FontWeight.w700,
+                          color: selected
+                              ? foreground.withValues(alpha: 0.8)
+                              : isToday
+                              ? foreground
+                              : scheme.onSurfaceVariant,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      '${day.day}',
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w800,
-                        color: foreground,
+                      const SizedBox(height: 2),
+                      Text(
+                        '${day.day}',
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w800,
+                          color: foreground,
+                        ),
                       ),
-                    ),
-                  ],
+                      ?bar,
+                    ],
+                  ),
                 ),
               ),
             ),

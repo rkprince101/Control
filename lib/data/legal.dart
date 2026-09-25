@@ -100,7 +100,9 @@ const privacyPolicy = LegalDocument(
           'downloaded from OpenStreetMap. Their servers receive your IP '
           'address and the area you are looking at, as with any website, '
           'under the OpenStreetMap Foundation\'s privacy policy. Nothing else '
-          'in the app uses the internet.',
+          'in the app uses the internet. Links you tap, such as GitHub, Buy '
+          'Me a Coffee or Google Play, open in your browser or their own app, '
+          'under their own policies.',
     ]),
     LegalSection('Device admin and device owner', [
       'If you turn it on, Control can hold device admin so Android asks for '

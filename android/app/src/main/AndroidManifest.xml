@@ -269,5 +269,10 @@
         <intent>
             <action android:name="android.intent.action.MANAGE_PERMISSIONS" />
         </intent>
+        <!-- The UPI apps that can take a tip from the Support sheet. -->
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="upi" />
+        </intent>
     </queries>
 </manifest>

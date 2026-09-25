@@ -2,6 +2,7 @@ import 'package:control/data/focus.dart';
 import 'package:control/data/habits.dart';
 import 'package:control/data/page_lock.dart';
 import 'package:control/main.dart';
+import 'package:control/ui/about_page.dart';
 import 'package:control/ui/blocks_page.dart';
 import 'package:control/ui/dialogs.dart';
 import 'package:control/ui/expressive_progress.dart';
@@ -16,6 +17,7 @@ import 'package:control/ui/lock_sheet.dart';
 import 'package:control/ui/money_page.dart';
 import 'package:control/ui/money_sheets.dart';
 import 'package:control/ui/money_charts.dart';
+import 'package:control/ui/month_date_strip.dart';
 import 'package:control/ui/note_editor.dart';
 import 'package:control/ui/page_lock.dart';
 import 'package:control/ui/todos_page.dart';
@@ -23,6 +25,7 @@ import 'package:control/ui/settings_page.dart';
 import 'package:control/ui/theme.dart';
 import 'package:control_core/control_core.dart';
 import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -65,6 +68,14 @@ void main() {
       RepaintBoundary(
         key: screenshot,
         child: ControlApp(store: store),
+      ),
+    );
+    // Pictures decode outside the test's fake clock; without this the
+    // Hushroom icon is still blank when a screenshot is taken.
+    await tester.runAsync(
+      () => precacheImage(
+        const AssetImage('assets/hushroom.png'),
+        tester.element(find.byKey(screenshot)),
       ),
     );
     if (settle) {
@@ -372,20 +383,17 @@ void main() {
     );
   });
 
-  testWidgets('Gmail-style drawer with badges and rules as labels', (
+  testWidgets('Gmail-style drawer with pages, badges and the small print', (
     tester,
   ) async {
     await host(tester);
     await tester.tap(menu.hitTestable());
     await tester.pumpAndSettle();
-    expect(
-      find.descendant(
-        of: find.byType(Drawer),
-        matching: find.text('YOUR RULES'),
-      ),
-      findsOneWidget,
-    );
-    expect(find.text('Mindful browsing'), findsWidgets);
+    Finder inDrawer(String text) =>
+        find.descendant(of: find.byType(Drawer), matching: find.text(text));
+    expect(inDrawer('YOUR RULES'), findsNothing);
+    expect(inDrawer('Mindful browsing'), findsNothing);
+    expect(inDrawer('Privacy policy'), findsOneWidget);
     expect(tester.takeException(), isNull);
     await expectLater(
       find.byKey(screenshot),
@@ -1121,5 +1129,127 @@ void main() {
       find.byKey(screenshot),
       matchesGoldenFile('goldens/terms_light.png'),
     );
+  });
+
+  testWidgets('Habits pick any past day from the month strip', (tester) async {
+    await host(tester);
+    await goTo(tester, 'Habits');
+    // Tomorrow is shown, dimmed, and cannot be picked.
+    await tester.tap(
+      find.bySemanticsLabel(RegExp('^Thursday, September 24, 2026')),
+      warnIfMissed: false,
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('DUE TODAY'), findsOneWidget);
+    // Two weeks back is fine; the old row stopped at a week.
+    final ninth = find.bySemanticsLabel(
+      RegExp('^Wednesday, September 9, 2026'),
+    );
+    await tester.scrollUntilVisible(
+      ninth,
+      -120,
+      scrollable: find
+          .descendant(
+            of: find.byType(MonthDateStrip),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(ninth);
+    await tester.pumpAndSettle();
+    expect(find.text('DUE WED, SEP 9'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('Support sheet: UPI and Buy me a coffee', (tester) async {
+    await host(tester);
+    await tester.tap(menu.hitTestable());
+    await tester.pumpAndSettle();
+    // The last item in the drawer, below the fold.
+    await tester.scrollUntilVisible(
+      find.text('Support me'),
+      200,
+      scrollable: find
+          .descendant(
+            of: find.byType(Drawer),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Support me'));
+    await tester.pumpAndSettle();
+    expect(find.text('Pay with UPI'), findsOneWidget);
+    expect(find.text('rishikeshprince@upi'), findsOneWidget);
+    expect(find.text('Buy me a coffee'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await expectLater(
+      find.byKey(screenshot),
+      matchesGoldenFile('goldens/support_light.png'),
+    );
+
+    String? copied;
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (call) async {
+        if (call.method == 'Clipboard.setData') {
+          copied = (call.arguments as Map)['text'] as String?;
+        }
+        return null;
+      },
+    );
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        null,
+      ),
+    );
+    await tester.tap(find.byTooltip('Copy UPI ID'));
+    await tester.pumpAndSettle();
+    expect(copied, 'rishikeshprince@upi');
+    expect(find.text('UPI ID copied.'), findsOneWidget);
+  });
+
+  testWidgets('About: version, the developer and a GitHub profile button', (
+    tester,
+  ) async {
+    PackageInfo.setMockInitialValues(
+      appName: 'Control',
+      packageName: 'com.rkprince.control',
+      version: '1.0.0',
+      buildNumber: '1',
+      buildSignature: '',
+    );
+    await host(tester);
+    await goTo(tester, 'About');
+    expect(find.byType(AboutPage), findsOneWidget);
+    expect(find.text('Version 1.0.0 (1)'), findsOneWidget);
+    expect(find.text('Rishikesh Prince Prajapati'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await expectLater(
+      find.byKey(screenshot),
+      matchesGoldenFile('goldens/about_light.png'),
+    );
+
+    // The button hands GitHub's address to the system to open.
+    final opened = <String>[];
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      const MethodChannel('plugins.flutter.io/url_launcher'),
+      (call) async {
+        final url = (call.arguments as Map?)?['url'];
+        if (url is String) opened.add(url);
+        return true;
+      },
+    );
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        const MethodChannel('plugins.flutter.io/url_launcher'),
+        null,
+      ),
+    );
+    await tester.tap(find.text('GitHub profile'));
+    await tester.pumpAndSettle();
+    expect(opened, ['https://github.com/rkprince101']);
   });
 }

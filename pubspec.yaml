@@ -47,6 +47,10 @@ dependencies:
   latlong2: ^0.10.1
   # Rich text for notes: bold, headings, checklists, text colour.
   flutter_quill: ^11.6.0
+  # Opens the support links and Hushroom's Play listing in their own apps.
+  url_launcher: ^6.3.2
+  # The version shown on the About page, read from the build itself.
+  package_info_plus: ^10.2.1
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -72,6 +76,7 @@ flutter:
   assets:
     - assets/icons/
     - assets/icons/habits/
+    - assets/hushroom.png
 
   # To add assets to your application, add an assets section, like this:
   # assets:

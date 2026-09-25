@@ -83,7 +83,7 @@ sha256sum -c SHA256SUMS.txt --ignore-missing
 | <img src="docs/screenshots/01_blocks.png" width="250" alt="Blocks"><br>Blocks and focus | <img src="docs/screenshots/02_habits.png" width="250" alt="Habits"><br>Habits and your garden | <img src="docs/screenshots/03_habit_detail.png" width="250" alt="Habit detail"><br>Streaks and weekly progress |
 | <img src="docs/screenshots/04_todos.png" width="250" alt="Todos"><br>Todos by day | <img src="docs/screenshots/05_notes.png" width="250" alt="Notes"><br>Notes | <img src="docs/screenshots/06_money.png" width="250" alt="Money"><br>Money, month by month |
 | <img src="docs/screenshots/07_money_stats.png" width="250" alt="Money stats"><br>Where the money went | <img src="docs/screenshots/08_insights.png" width="250" alt="Insights"><br>Screen time insights | <img src="docs/screenshots/09_drawer.png" width="250" alt="Navigation drawer"><br>Everything a tap away |
-| <img src="docs/screenshots/10_dark.png" width="250" alt="Dark theme"><br>Black and pitch-black themes | <img src="docs/screenshots/11_privacy.png" width="250" alt="Privacy policy"><br>Privacy policy in the app | |
+| <img src="docs/screenshots/10_dark.png" width="250" alt="Dark theme"><br>Black and pitch-black themes | <img src="docs/screenshots/11_privacy.png" width="250" alt="Privacy policy"><br>Privacy policy in the app | <img src="docs/screenshots/12_about.png" width="250" alt="About"><br>About, and the developer's GitHub |
 
 ---
 
@@ -93,6 +93,7 @@ sha256sum -c SHA256SUMS.txt --ignore-missing
 - [Screenshots](#screenshots)
 - [Features](#features)
 - [Privacy and terms](#privacy-and-terms)
+- [Support](#support)
 - [Requirements](#requirements)
 - [Getting started](#getting-started)
 - [Setting up on the device](#setting-up-on-the-device)
@@ -204,7 +205,10 @@ Implemented on Android; not yet tested on a physical device:
   back through earlier periods) and a GitHub-style history: a column per
   week back to the habit's first day, scrolling sideways from the latest,
   shaded by how much of each day was done. Tapping any past day selects it
-  for logging just below, which is how a missed day gets filled in. A day off never breaks a streak. Days done climb a rank ladder
+  for logging just below, which is how a missed day gets filled in. The
+  Habits page picks its day from the same month strip as Todos, with a thin
+  bar under each date for how much of it was done; any day up to today can
+  be picked, tomorrow cannot. A day off never breaks a streak. Days done climb a rank ladder
   (Seed to Old growth), drawn: a compact card on the Habits page shows the
   plant swaying and growing a little with every check-in, and opens a sheet
   with the full scene, the pace and a projected date for the next stage, the
@@ -246,13 +250,22 @@ Implemented on Android; not yet tested on a physical device:
   its rules out of the drawer's list. Pages lock again whenever you leave the
   app, or at once from the lock in the search bar. Only a salted SHA-256 of
   the PIN is stored: privacy from whoever picks the phone up, not a vault.
+- **About**: in the drawer and at the top of Settings > About. The app's
+  version, what it is for, who made it with a button to the developer's
+  [GitHub profile](https://github.com/rkprince101), and links to the source
+  code, privacy policy, terms, support, Hushroom and the open-source
+  licences of every library Control is built on.
+- **Support me and Hushroom**: the drawer and Settings > About link to
+  Hushroom, the developer's other app, on Google Play, and to a Support me
+  sheet: pay by UPI (opens your UPI app, or copies the UPI ID) or Buy Me a
+  Coffee.
 - **Privacy policy and terms of use** inside the app, in the navigation
   drawer and under Settings > About, and as [PRIVACY.md](PRIVACY.md) and
   [TERMS.md](TERMS.md) here. Before sending you to switch on App blocking or
   Usage access, Control says what each one reads and waits for you to agree.
 - **Navigation** laid out like Gmail: a floating search bar (menu, search
   across rules, habits and pages, and a status avatar that opens Settings), a
-  modal drawer listing pages with live counts and every rule as a label, and a
+  modal drawer listing pages with live counts, and a
   Compose-style action button that shrinks while scrolling. Wide screens get a
   rail with the menu and action at its head, expanding in place.
 - Blocks, locks, grants, and the unlock budget persist across restarts, in a
@@ -268,6 +281,29 @@ through Accessibility, usage access, steps and location is used on the phone
 and stays there; the only network traffic is OpenStreetMap tiles when you
 pick a place on a map. The full [privacy policy](PRIVACY.md) and
 [terms of use](TERMS.md) are also in the app, in the navigation drawer.
+
+---
+
+## Support
+
+Control is free, with no ads and no subscriptions. If it gave you some of your
+time back, you can say thanks:
+
+- **UPI**: `rishikeshprince@upi`
+- **Buy Me a Coffee**: [buymeacoffee.com/rkprince](https://buymeacoffee.com/rkprince)
+
+Both are in the app too, under **Support me** in the navigation drawer. A star
+on this repository, or telling a friend who needs it, helps just as much.
+
+### More from me
+
+<img src="assets/hushroom.png" width="56" alt="Hushroom" align="left">
+
+**[Hushroom](https://play.google.com/store/apps/details?id=com.focufuse.focusage)**,
+my other app, is on Google Play. Control links to it from the navigation
+drawer.
+
+<br clear="left">
 
 ---
 
@@ -688,9 +724,9 @@ offline from first launch; there is no Nunito runtime or font-download requireme
 
 Navigation follows Gmail. On compact layouts every page opens under a floating
 M3 `SearchBar` (menu, search, status avatar) that hides on scroll down and
-returns on scroll up; the menu opens a modal drawer with Blocks, Habits and
-Insights, a *Your rules* section listing each rule like a Gmail label, and
-Settings on its own. The page action (New block, New habit) is an extended FAB
+returns on scroll up; the menu opens a modal drawer with every page and its
+live count, then Settings, About, the privacy policy and terms of use,
+Hushroom and Support me. The page action (New block, New habit) is an extended FAB
 that collapses to its icon while scrolling. At widths >= 840 logical pixels a
 `NavigationRail` carries the menu and action at its head and expands in place.
 Back from any other page returns to Blocks before leaving the app. Pages retain
@@ -867,6 +903,7 @@ No physical-device testing has been performed yet. On a test device, verify:
 | Habit streaks, ranks, persistence | `lib/data/habits.dart`, `test/habits_test.dart` |
 | Todo sections, overdue and steps | `lib/data/todos.dart`, `test/todos_notes_test.dart` |
 | Note editor (flutter_quill) | `lib/ui/note_editor.dart` |
+| About page (version, developer, GitHub) | `lib/ui/about_page.dart` |
 | Privacy policy and terms | `lib/data/legal.dart` (in the app) and `PRIVACY.md`, `TERMS.md` (here); keep them in step |
 | What the permission dialogs say | `lib/ui/disclosures.dart` |
 | README screenshots | `test/screenshots_test.dart`, `test/support/preview_store.dart` |

@@ -7,6 +7,7 @@ import '../platform/platform_models.dart';
 import '../state/control_store.dart';
 import 'control_page.dart';
 import 'disclosures.dart';
+import 'about_page.dart';
 import 'controls.dart';
 import 'device_owner_sheet.dart';
 import 'dialogs.dart';
@@ -14,6 +15,7 @@ import 'expressive_progress.dart';
 import 'legal_page.dart';
 import 'lock_sheet.dart';
 import 'page_lock.dart';
+import 'support.dart';
 import 'theme.dart';
 import 'widgets.dart';
 
@@ -294,6 +296,13 @@ class SettingsPage extends StatelessWidget {
           child: Column(
             children: [
               _Row(
+                icon: Icons.info_outline_rounded,
+                label: 'About Control',
+                value: 'Version, the developer, GitHub',
+                onTap: () => AboutPage.open(context),
+              ),
+              Divider(height: 1, color: colors.divider),
+              _Row(
                 icon: Icons.privacy_tip_outlined,
                 label: 'Privacy policy',
                 value: 'Everything stays on your phone',
@@ -305,6 +314,22 @@ class SettingsPage extends StatelessWidget {
                 label: 'Terms of use',
                 value: 'Free, open source, given as it is',
                 onTap: () => LegalPage.open(context, termsOfUse),
+              ),
+              Divider(height: 1, color: colors.divider),
+              _Row(
+                icon: Icons.favorite_outline_rounded,
+                iconColor: Theme.of(context).colorScheme.error,
+                label: 'Support me',
+                value: 'UPI or Buy me a coffee',
+                onTap: () => SupportSheet.show(context),
+              ),
+              Divider(height: 1, color: colors.divider),
+              _Row(
+                icon: Icons.apps_rounded,
+                leading: const HushroomIcon(),
+                label: 'Hushroom',
+                value: 'My other app, on Google Play',
+                onTap: () => openHushroom(context),
               ),
             ],
           ),
@@ -537,6 +562,7 @@ class _Row extends StatelessWidget {
     required this.label,
     required this.value,
     this.iconColor,
+    this.leading,
     this.onTap,
   });
 
@@ -544,6 +570,9 @@ class _Row extends StatelessWidget {
   final String label;
   final String value;
   final Color? iconColor;
+
+  /// Drawn in place of [icon], such as another app's own icon.
+  final Widget? leading;
   final VoidCallback? onTap;
 
   @override
@@ -555,7 +584,8 @@ class _Row extends StatelessWidget {
         padding: const EdgeInsets.symmetric(vertical: 16),
         child: Row(
           children: [
-            Icon(icon, size: 22, color: iconColor ?? colors.textMuted),
+            leading ??
+                Icon(icon, size: 22, color: iconColor ?? colors.textMuted),
             const SizedBox(width: 14),
             Expanded(
               child: Column(

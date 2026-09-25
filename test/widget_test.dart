@@ -115,7 +115,7 @@ void main() {
     for (final label in ['Blocks', 'Habits', 'Insights', 'Settings']) {
       expect(find.bySemanticsLabel(label), findsOneWidget);
     }
-    expect(find.text('Create new'), findsOneWidget);
+    expect(find.text('Create new'), findsNothing);
 
     await tester.tap(find.bySemanticsLabel('Habits'));
     await tester.pumpAndSettle();

@@ -7,10 +7,12 @@ import 'package:control/ui/habit_sheets.dart';
 import 'package:control/ui/habits_page.dart';
 import 'package:control/ui/money_page.dart';
 import 'package:control/ui/theme.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 import 'support/preview_store.dart';
 
@@ -54,6 +56,13 @@ void main() {
       RepaintBoundary(
         key: frame,
         child: ControlApp(store: store),
+      ),
+    );
+    // Pictures decode outside the test's fake clock.
+    await tester.runAsync(
+      () => precacheImage(
+        const AssetImage('assets/hushroom.png'),
+        tester.element(find.byKey(frame)),
       ),
     );
     await tester.pumpAndSettle();
@@ -159,5 +168,18 @@ void main() {
     await host(tester);
     await goTo(tester, 'Privacy policy');
     await shoot(tester, '11_privacy');
+  });
+
+  testWidgets('about', skip: skip, (tester) async {
+    PackageInfo.setMockInitialValues(
+      appName: 'Control',
+      packageName: 'com.rkprince.control',
+      version: '1.0.0',
+      buildNumber: '1',
+      buildSignature: '',
+    );
+    await host(tester);
+    await goTo(tester, 'About');
+    await shoot(tester, '12_about');
   });
 }

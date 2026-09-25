@@ -8,6 +8,7 @@ import 'expressive_progress.dart';
 import 'growth_sheet.dart';
 import 'habit_sheets.dart';
 import 'habit_widgets.dart';
+import 'month_date_strip.dart';
 import 'theme.dart';
 import 'widgets.dart';
 
@@ -19,8 +20,8 @@ class HabitsPage extends StatefulWidget {
 }
 
 class _HabitsPageState extends State<HabitsPage> {
-  /// The day the cards log against. Today unless someone went back to fill in
-  /// a day they forgot.
+  /// The day the cards log against, or null for today. Null rather than
+  /// today's date, so the page moves on to the new day at midnight.
   DateTime? _picked;
 
   @override
@@ -28,15 +29,9 @@ class _HabitsPageState extends State<HabitsPage> {
     final store = StoreScope.of(context);
     final colors = ControlColors.of(context);
     final today = dateOnly(store.wallNow());
-    // A day picked last night quietly becomes today again after midnight
-    // rather than leaving the page stuck a day behind.
+    // Any day up to today can be filled in; tomorrow cannot be done yet.
     final picked = _picked;
-    final day =
-        picked == null ||
-            picked.isAfter(today) ||
-            today.difference(picked).inDays > 6
-        ? today
-        : picked;
+    final day = picked == null || picked.isAfter(today) ? today : picked;
 
     // A habit is part of a day only from the day it was created: it cannot
     // be due, or logged, before it existed.
@@ -64,10 +59,19 @@ class _HabitsPageState extends State<HabitsPage> {
           const GrowthCard(),
         ],
         const SizedBox(height: 20),
-        _DayStrip(
+        // The same month strip as Todos, with each day's share done under
+        // its date.
+        MonthDateStrip(
           selected: day,
           today: today,
-          onSelect: (value) => setState(() => _picked = value),
+          lastDay: today,
+          progressFor: (value) {
+            final progress = store.habitProgressOn(value);
+            return progress.due == 0 ? null : progress.done / progress.due;
+          },
+          onSelect: (value) => setState(
+            () => _picked = value == today ? null : dateOnly(value),
+          ),
         ),
         const SizedBox(height: 24),
         if (habits.isEmpty)
@@ -251,120 +255,6 @@ class _HabitHero extends StatelessWidget {
 }
 
 /// The last seven days, each with a ring for how much of it got done.
-class _DayStrip extends StatelessWidget {
-  const _DayStrip({
-    required this.selected,
-    required this.today,
-    required this.onSelect,
-  });
-
-  final DateTime selected;
-  final DateTime today;
-  final ValueChanged<DateTime> onSelect;
-
-  static const _letters = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
-
-  @override
-  Widget build(BuildContext context) {
-    final store = StoreScope.of(context);
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    final colors = ControlColors.of(context);
-    final localizations = MaterialLocalizations.of(context);
-
-    return Row(
-      children: [
-        for (var offset = 6; offset >= 0; offset--)
-          Expanded(
-            child: () {
-              final day = DateTime(today.year, today.month, today.day - offset);
-              final progress = store.habitProgressOn(day);
-              final share = progress.due == 0
-                  ? 0.0
-                  : progress.done / progress.due;
-              final isSelected = day == selected;
-
-              return Semantics(
-                button: true,
-                selected: isSelected,
-                label:
-                    '${localizations.formatFullDate(day)}, '
-                    '${progress.done} of ${progress.due} habits done',
-                child: ExcludeSemantics(
-                  child: InkWell(
-                    onTap: () => onSelect(day),
-                    borderRadius: BorderRadius.circular(20),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 6),
-                      child: Column(
-                        children: [
-                          Text(
-                            _letters[day.weekday - 1],
-                            style: theme.textTheme.labelSmall?.copyWith(
-                              color: day == today
-                                  ? scheme.primary
-                                  : colors.textMuted,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          SizedBox(
-                            width: 42,
-                            height: 42,
-                            child: Stack(
-                              alignment: Alignment.center,
-                              children: [
-                                AnimatedContainer(
-                                  duration:
-                                      MediaQuery.disableAnimationsOf(context)
-                                      ? Duration.zero
-                                      : const Duration(milliseconds: 180),
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    color: isSelected
-                                        ? scheme.secondaryContainer
-                                        : Colors.transparent,
-                                  ),
-                                ),
-                                CircularProgressIndicator(
-                                  value: share,
-                                  strokeWidth: 3,
-                                  strokeCap: StrokeCap.round,
-                                  color: colors.light,
-                                  backgroundColor:
-                                      scheme.surfaceContainerHighest,
-                                  constraints: const BoxConstraints.tightFor(
-                                    width: 42,
-                                    height: 42,
-                                  ),
-                                ),
-                                Text(
-                                  '${day.day}',
-                                  style: theme.textTheme.labelLarge?.copyWith(
-                                    color: isSelected
-                                        ? scheme.onSecondaryContainer
-                                        : null,
-                                    fontWeight: isSelected
-                                        ? FontWeight.w800
-                                        : FontWeight.w600,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              );
-            }(),
-          ),
-      ],
-    );
-  }
-}
-
 /// One habit: what it is, a one-tap way to log it, and its grid.
 class HabitCard extends StatelessWidget {
   const HabitCard({required this.habit, required this.day, super.key});

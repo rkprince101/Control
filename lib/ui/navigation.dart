@@ -10,10 +10,12 @@ import '../data/notes.dart';
 import '../data/todos.dart';
 import '../main.dart';
 import '../state/control_store.dart';
+import 'about_page.dart';
 import 'block_editor_sheet.dart';
 import 'habit_sheets.dart';
 import 'habit_widgets.dart';
 import 'legal_page.dart';
+import 'support.dart';
 import 'note_editor.dart';
 import 'todos_page.dart';
 import 'theme.dart';
@@ -343,21 +345,17 @@ class _StatusAvatar extends StatelessWidget {
   }
 }
 
-/// The modal drawer: main places first, then every rule the way Gmail lists
-/// labels, then settings on its own.
+/// The modal drawer: the pages first, then settings and the small print,
+/// then the developer's other app and a way to support Control.
 class ControlDrawer extends StatelessWidget {
   const ControlDrawer({
     required this.selected,
     required this.onSelect,
-    required this.onOpenRule,
-    required this.onNewRule,
     super.key,
   });
 
   final Destination selected;
   final ValueChanged<Destination> onSelect;
-  final ValueChanged<Block> onOpenRule;
-  final VoidCallback onNewRule;
 
   @override
   Widget build(BuildContext context) {
@@ -397,25 +395,6 @@ class ControlDrawer extends StatelessWidget {
                 selected: destination == selected,
                 onTap: () => onSelect(destination),
               ),
-            // Rules open straight into their editor, so they wait behind the
-            // Blocks page's PIN too.
-            if (!store.isPageLocked(Destination.blocks.name)) ...[
-              const _DrawerDivider(),
-              const _DrawerSection('Your rules'),
-              for (final block in store.blocks)
-                DrawerItem(
-                  icon: null,
-                  leading: _RuleGlyph(block: block),
-                  label: block.name,
-                  trailing: _RuleDot(block: block),
-                  onTap: () => onOpenRule(block),
-                ),
-              DrawerItem(
-                icon: Icons.add_rounded,
-                label: 'Create new',
-                onTap: onNewRule,
-              ),
-            ],
             const _DrawerDivider(),
             DrawerItem(
               icon: selected == Destination.settings
@@ -426,6 +405,15 @@ class ControlDrawer extends StatelessWidget {
               onTap: () => onSelect(Destination.settings),
             ),
             DrawerItem(
+              icon: Icons.info_outline_rounded,
+              label: 'About',
+              onTap: () {
+                final navigator = Navigator.of(context);
+                Scaffold.maybeOf(context)?.closeDrawer();
+                navigator.push(AboutPage.route());
+              },
+            ),
+            DrawerItem(
               icon: Icons.privacy_tip_outlined,
               label: 'Privacy policy',
               onTap: () => _openLegal(context, privacyPolicy),
@@ -434,6 +422,30 @@ class ControlDrawer extends StatelessWidget {
               icon: Icons.handshake_outlined,
               label: 'Terms of use',
               onTap: () => _openLegal(context, termsOfUse),
+            ),
+            const _DrawerDivider(),
+            const _DrawerSection('More from me'),
+            DrawerItem(
+              icon: null,
+              leading: const HushroomIcon(),
+              label: 'Hushroom',
+              trailing: Icon(
+                Icons.open_in_new_rounded,
+                size: 18,
+                color: scheme.onSurfaceVariant,
+              ),
+              onTap: () {
+                Scaffold.maybeOf(context)?.closeDrawer();
+                openHushroom(context);
+              },
+            ),
+            DrawerItem(
+              icon: Icons.favorite_outline_rounded,
+              label: 'Support me',
+              onTap: () {
+                Scaffold.maybeOf(context)?.closeDrawer();
+                SupportSheet.show(context);
+              },
             ),
           ],
         ),
@@ -648,31 +660,6 @@ class _RuleGlyph extends StatelessWidget {
       height: 22,
       colorFilter: ColorFilter.mode(color, BlendMode.srcIn),
       placeholderBuilder: (_) => const SizedBox(width: 22, height: 22),
-    );
-  }
-}
-
-/// Blocking, open, or switched off: the same three states as the pill on the
-/// rule's card.
-class _RuleDot extends StatelessWidget {
-  const _RuleDot({required this.block});
-
-  final Block block;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = ControlColors.of(context);
-    final blocking =
-        StoreScope.of(context).decisionFor(block.id)?.blocked ?? false;
-    final color = !block.enabled
-        ? colors.textMuted.withValues(alpha: 0.4)
-        : blocking
-        ? colors.heavy
-        : colors.light;
-    return Container(
-      width: 8,
-      height: 8,
-      decoration: BoxDecoration(color: color, shape: BoxShape.circle),
     );
   }
 }
