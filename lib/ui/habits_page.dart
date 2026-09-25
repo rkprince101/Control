@@ -5,6 +5,7 @@ import '../data/habits.dart';
 import '../main.dart';
 import 'control_page.dart';
 import 'expressive_progress.dart';
+import 'growth_sheet.dart';
 import 'habit_sheets.dart';
 import 'habit_widgets.dart';
 import 'theme.dart';
@@ -37,12 +38,19 @@ class _HabitsPageState extends State<HabitsPage> {
         ? today
         : picked;
 
+    // A habit is part of a day only from the day it was created: it cannot
+    // be due, or logged, before it existed.
     final habits = store.habits;
-    final due = [
+    final existing = [
       for (final habit in habits)
+        if (!day.isBefore(dateOnly(habit.createdAt))) habit,
+    ];
+    final notYet = habits.length - existing.length;
+    final due = [
+      for (final habit in existing)
         if (habit.isDueOn(day) || store.habitStats(habit).isDoneOn(day)) habit,
     ];
-    final resting = habits.where((habit) => !due.contains(habit)).toList();
+    final resting = existing.where((habit) => !due.contains(habit)).toList();
 
     return ControlPage(
       title: 'Build rhythm',
@@ -50,6 +58,11 @@ class _HabitsPageState extends State<HabitsPage> {
       subtitle: 'Small steps, done often, add up to a lot.',
       children: [
         _HabitHero(day: day, today: today),
+        // The garden, in brief: a tap opens the whole of it.
+        if (habits.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          const GrowthCard(),
+        ],
         const SizedBox(height: 20),
         _DayStrip(
           selected: day,
@@ -98,6 +111,18 @@ class _HabitsPageState extends State<HabitsPage> {
               padding: const EdgeInsets.only(bottom: 14),
               child: HabitCard(habit: habit, day: day),
             ),
+          if (notYet > 0) ...[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(4, 0, 4, 14),
+              child: Text(
+                notYet == 1
+                    ? '1 habit started after this day, so it is not shown.'
+                    : '$notYet habits started after this day, so they are '
+                          'not shown.',
+                style: TextStyle(color: colors.textMuted),
+              ),
+            ),
+          ],
           if (resting.isNotEmpty) ...[
             const SizedBox(height: 10),
             const SectionLabel('Day off'),
@@ -128,110 +153,99 @@ class _HabitHero extends StatelessWidget {
     final foreground = scheme.onSecondaryContainer;
 
     final progress = store.habitProgressOn(day);
-    final points = store.habitPoints;
-    final rank = HabitRank.forPoints(points);
-    final next = HabitRank.nextAfter(points);
     final bestStreak = store.habits.fold(0, (best, habit) {
       final streak = store.habitStats(habit).currentStreak;
       return streak > best ? streak : best;
     });
 
+    final status = progress.due == 0
+        ? 'A clear day'
+        : progress.done >= progress.due
+        ? 'All done. Nice.'
+        : '${progress.done} of ${progress.due} done';
+
+    // One compact row: the day on the left, the streak on the right. The
+    // page is mostly habits, and this is a summary above them, not a banner.
     return HeroCard(
       tone: scheme.secondaryContainer,
+      padding: const EdgeInsets.fromLTRB(20, 14, 16, 14),
       child: DefaultTextStyle.merge(
         style: TextStyle(color: foreground),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        child: Row(
           children: [
-            Icon(Icons.local_florist_outlined, color: foreground),
-            const SizedBox(height: 16),
-            Text(
-              progress.due == 0
-                  ? 'A clear day.'
-                  : progress.done >= progress.due
-                  ? 'All done. Nice.'
-                  : '${progress.done} of ${progress.due} done',
-              style: theme.textTheme.headlineLarge?.copyWith(
-                color: foreground,
-                fontWeight: FontWeight.w800,
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    status,
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      color: foreground,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  ExpressiveProgress(
+                    value: progress.due == 0 ? 0 : progress.done / progress.due,
+                    height: 14,
+                    color: foreground,
+                    trackColor: foreground.withValues(alpha: 0.18),
+                    semanticsLabel: day == today
+                        ? 'Habits done today'
+                        : 'Habits done that day',
+                  ),
+                ],
               ),
             ),
-            const SizedBox(height: 16),
-            ExpressiveProgress(
-              value: progress.due == 0 ? 0 : progress.done / progress.due,
-              color: foreground,
-              trackColor: foreground.withValues(alpha: 0.18),
-              semanticsLabel: day == today
-                  ? 'Habits done today'
-                  : 'Habits done that day',
-            ),
-            const SizedBox(height: 16),
-            Wrap(
-              spacing: 20,
-              runSpacing: 12,
-              children: [
-                _HeroMetric(
-                  icon: Icons.local_fire_department_rounded,
-                  value: bestStreak == 1 ? '1 day' : '$bestStreak days',
-                  label: 'Best running streak',
-                  color: foreground,
+            const SizedBox(width: 16),
+            Semantics(
+              label:
+                  'Best running streak, '
+                  '${bestStreak == 1 ? '1 day' : '$bestStreak days'}',
+              child: ExcludeSemantics(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    color: foreground.withValues(alpha: 0.08),
+                    borderRadius: Shapes.field,
+                  ),
+                  child: Column(
+                    children: [
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.local_fire_department_rounded,
+                            size: 18,
+                            color: foreground,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            '$bestStreak',
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              color: foreground,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ],
+                      ),
+                      Text(
+                        'day streak',
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: foreground.withValues(alpha: 0.8),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-                _HeroMetric(
-                  icon: Icons.park_outlined,
-                  value: rank.name,
-                  label: next == null
-                      ? '$points check-ins. Top rank'
-                      : '${next.threshold - points} more to ${next.name}',
-                  color: foreground,
-                ),
-              ],
+              ),
             ),
           ],
         ),
       ),
-    );
-  }
-}
-
-class _HeroMetric extends StatelessWidget {
-  const _HeroMetric({
-    required this.icon,
-    required this.value,
-    required this.label,
-    required this.color,
-  });
-
-  final IconData icon;
-  final String value;
-  final String label;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, size: 22, color: color),
-        const SizedBox(width: 10),
-        Flexible(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                value,
-                style: theme.textTheme.titleMedium?.copyWith(color: color),
-              ),
-              Text(
-                label,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: color.withValues(alpha: 0.8),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
     );
   }
 }

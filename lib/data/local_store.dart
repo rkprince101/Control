@@ -8,6 +8,10 @@ import 'package:path_provider/path_provider.dart';
 import 'block_codec.dart';
 import 'focus.dart';
 import 'habits.dart';
+import 'money.dart';
+import 'notes.dart';
+import 'page_lock.dart';
+import 'todos.dart';
 
 /// Local persistence for everything a restart must not reset.
 ///
@@ -266,6 +270,86 @@ class LocalStore {
 
   HabitTimer? loadHabitTimer() => HabitTimer.fromMap(_state[_habitTimer]);
 
+  // Todos and notes -----------------------------------------------------
+
+  List<Todo> loadTodos() => [
+    for (final raw in (_state[_todos] as List?) ?? const []) ?Todo.fromJson(raw),
+  ];
+
+  Future<void> saveTodos(List<Todo> todos) {
+    _state[_todos] = [for (final todo in todos) todo.toJson()];
+    return _save();
+  }
+
+  List<Note> loadNotes() => [
+    for (final raw in (_state[_notes] as List?) ?? const []) ?Note.fromJson(raw),
+  ];
+
+  Future<void> saveNotes(List<Note> notes) {
+    _state[_notes] = [for (final note in notes) note.toJson()];
+    return _save();
+  }
+
+  // Money ---------------------------------------------------------------------
+
+  List<ExpenseEntry> loadMoneyEntries() => [
+    for (final raw in (_state[_moneyEntries] as List?) ?? const [])
+      ?ExpenseEntry.fromJson(raw),
+  ];
+
+  Future<void> saveMoneyEntries(List<ExpenseEntry> entries) {
+    _state[_moneyEntries] = [for (final entry in entries) entry.toJson()];
+    return _save();
+  }
+
+  List<Budget> loadBudgets() => [
+    for (final raw in (_state[_budgets] as List?) ?? const [])
+      ?Budget.fromJson(raw),
+  ];
+
+  Future<void> saveBudgets(List<Budget> budgets) {
+    _state[_budgets] = [for (final budget in budgets) budget.toJson()];
+    return _save();
+  }
+
+  List<LoanEntry> loadLoans() => [
+    for (final raw in (_state[_loans] as List?) ?? const [])
+      ?LoanEntry.fromJson(raw),
+  ];
+
+  Future<void> saveLoans(List<LoanEntry> loans) {
+    _state[_loans] = [for (final loan in loans) loan.toJson()];
+    return _save();
+  }
+
+  String? loadCurrency() => _state[_currency] as String?;
+
+  Future<void> saveCurrency(String code) {
+    _state[_currency] = code;
+    return _save();
+  }
+
+  // Page lock -----------------------------------------------------------------
+
+  PageLock loadPageLock() => PageLock.fromJson(_state[_pageLock]);
+
+  Future<void> savePageLock(PageLock lock) {
+    if (lock.enabled) {
+      _state[_pageLock] = lock.toJson();
+    } else {
+      _state.remove(_pageLock);
+    }
+    return _save();
+  }
+
+  /// The highest growth stage already celebrated.
+  int loadGrowthStageSeen() => (_state[_growthSeen] as num?)?.toInt() ?? 0;
+
+  Future<void> saveGrowthStageSeen(int stage) {
+    _state[_growthSeen] = stage;
+    return _save();
+  }
+
   Future<void> saveHabitTimer(HabitTimer? timer) {
     if (timer == null) {
       _state.remove(_habitTimer);
@@ -305,4 +389,12 @@ class LocalStore {
   static const _habits = 'habits';
   static const _habitLog = 'habitLog';
   static const _habitTimer = 'habitTimer';
+  static const _growthSeen = 'growthStageSeen';
+  static const _todos = 'todos';
+  static const _notes = 'notes';
+  static const _moneyEntries = 'moneyEntries';
+  static const _budgets = 'moneyBudgets';
+  static const _loans = 'moneyLoans';
+  static const _currency = 'currency';
+  static const _pageLock = 'pageLock';
 }

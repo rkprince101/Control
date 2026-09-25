@@ -5,17 +5,28 @@ import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
 import '../data/habits.dart';
+import '../data/notes.dart';
+import '../data/todos.dart';
 import '../main.dart';
 import '../state/control_store.dart';
 import 'block_editor_sheet.dart';
 import 'habit_sheets.dart';
 import 'habit_widgets.dart';
+import 'note_editor.dart';
+import 'todos_page.dart';
 import 'theme.dart';
 
-/// The four places the app can be.
+/// The places the app can be.
 enum Destination {
   blocks('Blocks', Icons.shield_outlined, Icons.shield_rounded),
   habits('Habits', Icons.local_florist_outlined, Icons.local_florist_rounded),
+  todos('Todos', Icons.task_alt_outlined, Icons.task_alt_rounded),
+  notes('Notes', Icons.sticky_note_2_outlined, Icons.sticky_note_2_rounded),
+  money(
+    'Money',
+    Icons.account_balance_wallet_outlined,
+    Icons.account_balance_wallet_rounded,
+  ),
   insights('Insights', Icons.bar_chart_outlined, Icons.bar_chart_rounded),
   settings('Settings', Icons.tune_outlined, Icons.tune_rounded);
 
@@ -83,13 +94,13 @@ class ShellSearchBar extends StatelessWidget {
           8,
         ),
         child: SearchAnchor(
-          viewHintText: 'Search rules, habits and pages',
+          viewHintText: 'Search rules, habits, todos and notes',
           viewBackgroundColor: scheme.surface,
           viewSurfaceTintColor: Colors.transparent,
           dividerColor: scheme.outlineVariant,
           builder: (context, controller) => SearchBar(
             controller: controller,
-            hintText: 'Search rules and habits',
+            hintText: 'Search in Control',
             elevation: const WidgetStatePropertyAll(0),
             backgroundColor: WidgetStatePropertyAll(
               scheme.surfaceContainerHigh,
@@ -111,6 +122,14 @@ class ShellSearchBar extends StatelessWidget {
                     onPressed: navigation.onOpenDrawer,
                   ),
             trailing: [
+              // Only while a locked page is open: closing them all is then
+              // one tap, as it is for a phone's own lock.
+              if (StoreScope.of(context).hasUnlockedPages)
+                IconButton(
+                  tooltip: 'Lock pages now',
+                  icon: const Icon(Icons.lock_rounded),
+                  onPressed: StoreScope.of(context).lockPages,
+                ),
               _StatusAvatar(
                 onTap: () => navigation.onSelect(Destination.settings),
               ),
@@ -136,11 +155,29 @@ class ShellSearchBar extends StatelessWidget {
     bool matches(String text) =>
         query.isEmpty || text.toLowerCase().contains(query);
 
+    // What a locked page holds stays out of the results until it is opened;
+    // the page itself is still listed, and asks for the PIN.
+    bool open(Destination page) => !store.isPageLocked(page.name);
+
     final pages = Destination.values.where((page) => matches(page.label));
-    final rules = store.blocks.where((block) => matches(block.name));
-    final habits = store.habits.where(
-      (habit) => matches(habit.name) || matches(habit.description),
-    );
+    final rules = open(Destination.blocks)
+        ? store.blocks.where((block) => matches(block.name))
+        : const <Block>[];
+    final habits = open(Destination.habits)
+        ? store.habits.where(
+            (habit) => matches(habit.name) || matches(habit.description),
+          )
+        : const <Habit>[];
+    // Undone todos, and every note, only once something has been typed:
+    // they are many, and the empty search is for getting around.
+    final todos = query.isEmpty || !open(Destination.todos)
+        ? const <Todo>[]
+        : store.todos.where((todo) => !todo.isDone && matches(todo.title));
+    final notes = query.isEmpty || !open(Destination.notes)
+        ? const <Note>[]
+        : store.notes.where(
+            (note) => matches(note.title) || matches(note.preview),
+          );
 
     void close() => controller.closeView('');
 
@@ -188,7 +225,59 @@ class ShellSearchBar extends StatelessWidget {
             },
           ),
       ],
-      if (pages.isEmpty && rules.isEmpty && habits.isEmpty)
+      if (todos.isNotEmpty) ...[
+        const _ResultHeader('Todos'),
+        for (final todo in todos)
+          ListTile(
+            leading: const Icon(Icons.radio_button_unchecked_rounded),
+            title: Text(todo.title),
+            subtitle: Text(
+              todo.date == null
+                  ? 'No due date'
+                  : MaterialLocalizations.of(
+                      searchContext,
+                    ).formatMediumDate(todo.date!),
+            ),
+            onTap: () {
+              close();
+              navigation.onSelect(Destination.todos);
+              TodoDetailSheet.show(pageContext, todo.id);
+            },
+          ),
+      ],
+      if (notes.isNotEmpty) ...[
+        const _ResultHeader('Notes'),
+        for (final note in notes)
+          ListTile(
+            leading: Icon(
+              note.pinned
+                  ? Icons.push_pin_rounded
+                  : Icons.sticky_note_2_outlined,
+            ),
+            title: Text(
+              note.title.isEmpty ? note.preview : note.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            subtitle: note.title.isEmpty || note.preview.isEmpty
+                ? null
+                : Text(
+                    note.preview,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+            onTap: () {
+              close();
+              navigation.onSelect(Destination.notes);
+              NoteEditorScreen.open(pageContext, note: note);
+            },
+          ),
+      ],
+      if (pages.isEmpty &&
+          rules.isEmpty &&
+          habits.isEmpty &&
+          todos.isEmpty &&
+          notes.isEmpty)
         Padding(
           padding: const EdgeInsets.all(32),
           child: Text(
@@ -285,6 +374,9 @@ class ControlDrawer extends StatelessWidget {
             for (final destination in const [
               Destination.blocks,
               Destination.habits,
+              Destination.todos,
+              Destination.notes,
+              Destination.money,
               Destination.insights,
             ])
               DrawerItem(
@@ -293,24 +385,35 @@ class ControlDrawer extends StatelessWidget {
                     : destination.icon,
                 label: destination.label,
                 badge: badgeFor(store, destination),
+                trailing: store.isPageLocked(destination.name)
+                    ? Icon(
+                        Icons.lock_outline_rounded,
+                        size: 18,
+                        color: scheme.onSurfaceVariant,
+                      )
+                    : null,
                 selected: destination == selected,
                 onTap: () => onSelect(destination),
               ),
-            const _DrawerDivider(),
-            const _DrawerSection('Your rules'),
-            for (final block in store.blocks)
+            // Rules open straight into their editor, so they wait behind the
+            // Blocks page's PIN too.
+            if (!store.isPageLocked(Destination.blocks.name)) ...[
+              const _DrawerDivider(),
+              const _DrawerSection('Your rules'),
+              for (final block in store.blocks)
+                DrawerItem(
+                  icon: null,
+                  leading: _RuleGlyph(block: block),
+                  label: block.name,
+                  trailing: _RuleDot(block: block),
+                  onTap: () => onOpenRule(block),
+                ),
               DrawerItem(
-                icon: null,
-                leading: _RuleGlyph(block: block),
-                label: block.name,
-                trailing: _RuleDot(block: block),
-                onTap: () => onOpenRule(block),
+                icon: Icons.add_rounded,
+                label: 'Create new',
+                onTap: onNewRule,
               ),
-            DrawerItem(
-              icon: Icons.add_rounded,
-              label: 'Create new',
-              onTap: onNewRule,
-            ),
+            ],
             const _DrawerDivider(),
             DrawerItem(
               icon: selected == Destination.settings
@@ -329,6 +432,8 @@ class ControlDrawer extends StatelessWidget {
   /// The number beside a destination, as Gmail puts unread counts beside
   /// labels: what is live right now, or nothing.
   static String? badgeFor(ControlStore store, Destination destination) {
+    // A locked page gives nothing away, not even a count.
+    if (store.isPageLocked(destination.name)) return null;
     switch (destination) {
       case Destination.blocks:
         final blocking =
@@ -341,6 +446,12 @@ class ControlDrawer extends StatelessWidget {
         final today = store.habitProgressOn(dateOnly(store.wallNow()));
         final left = today.due - today.done;
         return left <= 0 ? null : '$left';
+      case Destination.todos:
+        // What is still open today, overdue included, as Gmail counts unread.
+        final open = store.todoBook.pendingCountFor(dateOnly(store.wallNow()));
+        return open <= 0 ? null : (open > 99 ? '99+' : '$open');
+      case Destination.notes || Destination.money:
+        return null;
       case Destination.insights:
         final time = store.usage.screenTime;
         return !store.usageAccessGranted || time == Duration.zero

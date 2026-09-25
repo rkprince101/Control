@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../main.dart';
 import '../state/control_store.dart';
+import 'dialogs.dart';
 import 'sheet.dart';
 import 'theme.dart';
 
@@ -205,31 +206,20 @@ class _ArmSheet extends StatelessWidget {
 
   /// A second tap for the irreversible choice. Everything else in this app is
   /// undoable; this is not.
-  Future<bool> _confirmTimed(BuildContext context, String label) async {
-    final result = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: ControlColors.of(context).card,
-        title: Text('Lock for $label?'),
-        content: Text(
-          'You will not be able to change ${target.name} for $label. There is '
-          'no password that opens it early.',
-          style: const TextStyle(height: 1.35),
+  Future<bool> _confirmTimed(BuildContext context, String label) =>
+      confirmAction(
+        context,
+        icon: Icons.lock_clock_outlined,
+        tone: DialogTone.caution,
+        title: 'Lock for $label?',
+        message: 'You will not be able to change ${target.name} for $label.',
+        detail: const DialogNote(
+          icon: Icons.key_off_rounded,
+          text: 'There is no password that opens it early.',
+          tone: DialogTone.caution,
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: Text('Lock $label'),
-          ),
-        ],
-      ),
-    );
-    return result ?? false;
-  }
+        confirmLabel: 'Lock $label',
+      );
 }
 
 class _UnlockSheet extends StatelessWidget {
@@ -300,35 +290,21 @@ class _UnlockSheet extends StatelessWidget {
     );
   }
 
-  Future<bool> _confirmEmergency(
-    BuildContext context,
-    ControlStore store,
-  ) async {
-    final left = store.emergencyUnlocks.remaining - 1;
-    final result = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: ControlColors.of(context).card,
-        title: const Text('Spend an emergency unlock?'),
-        content: Text(
-          'This opens ${target.name} now and leaves you $left. They never '
-          'refill.',
-          style: const TextStyle(height: 1.35),
+  Future<bool> _confirmEmergency(BuildContext context, ControlStore store) =>
+      confirmAction(
+        context,
+        icon: Icons.emergency_outlined,
+        tone: DialogTone.danger,
+        title: 'Spend an emergency unlock?',
+        message: 'This opens ${target.name} now. Emergency unlocks never '
+            'refill.',
+        detail: _UnlockPips(
+          total: store.emergencyUnlocks.total,
+          remaining: store.emergencyUnlocks.remaining,
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Keep it'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Spend it'),
-          ),
-        ],
-      ),
-    );
-    return result ?? false;
-  }
+        cancelLabel: 'Keep it',
+        confirmLabel: 'Spend it',
+      );
 
   static String _humanise(Duration duration) {
     if (duration.inDays >= 1) {
@@ -341,100 +317,95 @@ class _UnlockSheet extends StatelessWidget {
   }
 }
 
-class _PasswordDialog extends StatefulWidget {
-  const _PasswordDialog({
-    required this.title,
-    required this.action,
-    required this.confirm,
-  });
-
-  final String title;
-  final String action;
-
-  /// Asks twice when setting a new password: a typo here locks the target until
-  /// an emergency unlock is spent.
-  final bool confirm;
-
+/// Asks for a block password: twice when it is being set, since a typo there
+/// keeps the block shut until an emergency unlock is spent.
+abstract final class _PasswordDialog {
   static Future<String?> show(
     BuildContext context, {
     required String title,
     required String action,
     bool confirm = false,
-  }) =>
-      showDialog<String>(
-        context: context,
-        builder: (_) =>
-            _PasswordDialog(title: title, action: action, confirm: confirm),
-      );
-
-  @override
-  State<_PasswordDialog> createState() => _PasswordDialogState();
+  }) => showControlDialog<String>(
+    context,
+    builder: (_) => SecretDialog(
+      icon: confirm ? Icons.password_rounded : Icons.lock_open_rounded,
+      title: title,
+      message: confirm
+          ? 'Asked twice: a typo here keeps it locked until an emergency '
+                'unlock is spent.'
+          : null,
+      action: action,
+      fieldLabel: 'Password',
+      repeatLabel: confirm ? 'Repeat password' : null,
+      validate: (secret) => secret.isEmpty ? 'Enter a password.' : null,
+    ),
+  );
 }
 
-class _PasswordDialogState extends State<_PasswordDialog> {
-  final _first = TextEditingController();
-  final _second = TextEditingController();
-  String? _error;
+/// The emergency unlocks as a row of dots: those that stay, the one about to
+/// go, and those already gone.
+class _UnlockPips extends StatelessWidget {
+  const _UnlockPips({required this.total, required this.remaining});
 
-  @override
-  void dispose() {
-    _first.dispose();
-    _second.dispose();
-    super.dispose();
-  }
-
-  void _submit() {
-    final password = _first.text;
-    if (password.isEmpty) {
-      setState(() => _error = 'Enter a password.');
-      return;
-    }
-    if (widget.confirm && password != _second.text) {
-      setState(() => _error = 'The two entries do not match.');
-      return;
-    }
-    Navigator.pop(context, password);
-  }
+  final int total;
+  final int remaining;
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      backgroundColor: ControlColors.of(context).card,
-      title: Text(widget.title),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final left = remaining - 1;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Column(
         children: [
-          TextField(
-            controller: _first,
-            obscureText: true,
-            autofocus: true,
-            decoration: const InputDecoration(labelText: 'Password'),
-            onSubmitted: (_) => widget.confirm ? null : _submit(),
+          Wrap(
+            spacing: 10,
+            runSpacing: 8,
+            alignment: WrapAlignment.center,
+            children: [
+              for (var i = 0; i < total; i++)
+                Container(
+                  width: 18,
+                  height: 18,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: i < left
+                        ? scheme.primary
+                        : i == left
+                        ? scheme.error.withValues(alpha: 0.18)
+                        : Colors.transparent,
+                    border: Border.all(
+                      color: i < left
+                          ? scheme.primary
+                          : i == left
+                          ? scheme.error
+                          : scheme.outlineVariant,
+                      width: 2,
+                    ),
+                  ),
+                  child: i == left
+                      ? Icon(Icons.close_rounded, size: 11, color: scheme.error)
+                      : null,
+                ),
+            ],
           ),
-          if (widget.confirm)
-            TextField(
-              controller: _second,
-              obscureText: true,
-              decoration: const InputDecoration(labelText: 'Repeat password'),
-              onSubmitted: (_) => _submit(),
+          const SizedBox(height: 10),
+          Text(
+            left == 0
+                ? 'This is your last one.'
+                : '$left of $total left after this',
+            textAlign: TextAlign.center,
+            style: theme.textTheme.labelLarge?.copyWith(
+              color: left == 0 ? scheme.error : scheme.onSurfaceVariant,
             ),
-          if (_error != null)
-            Padding(
-              padding: const EdgeInsets.only(top: 12),
-              child: Text(
-                _error!,
-                style: TextStyle(color: ControlColors.of(context).heavy),
-              ),
-            ),
+          ),
         ],
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(onPressed: _submit, child: Text(widget.action)),
-      ],
     );
   }
 }

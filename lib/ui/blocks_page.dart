@@ -43,41 +43,7 @@ class BlocksPage extends StatelessWidget {
           ),
           const SizedBox(height: 12),
         ],
-        HeroCard(
-          tone: Theme.of(context).colorScheme.primaryContainer,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Icon(
-                Icons.spa_outlined,
-                color: Theme.of(context).colorScheme.onPrimaryContainer,
-              ),
-              const SizedBox(height: 16),
-              Text(
-                'Time for what matters.',
-                style: Theme.of(context).textTheme.headlineLarge?.copyWith(
-                  color: Theme.of(context).colorScheme.onPrimaryContainer,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                '${formatDuration(store.focusToday)} focused today',
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  color: Theme.of(context).colorScheme.onPrimaryContainer,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                '${store.blocks.where((block) => block.enabled).length} '
-                'rules enabled',
-                style: TextStyle(
-                  color: Theme.of(context).colorScheme.onPrimaryContainer,
-                ),
-              ),
-            ],
-          ),
-        ),
+        const _BlocksHero(),
         const SizedBox(height: 24),
         const SectionLabel('Your rules'),
         if (store.blocks.isEmpty)
@@ -576,5 +542,89 @@ class _DetailRow extends StatelessWidget {
   String _conditionSummary() {
     if (block.conditions.isEmpty) return 'No habit set';
     return block.conditions.map(describeCondition).join(' + ');
+  }
+}
+
+/// The day in one compact row: focus time on the left, rules switched on at
+/// the right. A summary above the rules, not a banner pushing them down.
+class _BlocksHero extends StatelessWidget {
+  const _BlocksHero();
+
+  @override
+  Widget build(BuildContext context) {
+    final store = StoreScope.of(context);
+    final theme = Theme.of(context);
+    final foreground = theme.colorScheme.onPrimaryContainer;
+    final enabled = store.blocks.where((block) => block.enabled).length;
+
+    return HeroCard(
+      tone: theme.colorScheme.primaryContainer,
+      padding: const EdgeInsets.fromLTRB(20, 14, 16, 14),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Time for what matters.',
+                  style: theme.textTheme.labelLarge?.copyWith(
+                    color: foreground.withValues(alpha: 0.8),
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  '${formatDuration(store.focusToday)} focused today',
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    color: foreground,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 16),
+          Semantics(
+            label: '$enabled rule${enabled == 1 ? '' : 's'} enabled',
+            child: ExcludeSemantics(
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
+                decoration: BoxDecoration(
+                  color: foreground.withValues(alpha: 0.08),
+                  borderRadius: Shapes.field,
+                ),
+                child: Column(
+                  children: [
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.shield_rounded, size: 18, color: foreground),
+                        const SizedBox(width: 4),
+                        Text(
+                          '$enabled',
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            color: foreground,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ],
+                    ),
+                    Text(
+                      enabled == 1 ? 'rule on' : 'rules on',
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: foreground.withValues(alpha: 0.8),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }

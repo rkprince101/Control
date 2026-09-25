@@ -7,7 +7,10 @@ import '../data/habits.dart';
 import '../main.dart';
 import 'block_icon.dart';
 import 'controls.dart';
+import 'dialogs.dart';
 import 'expressive_progress.dart';
+import 'habit_heatmap.dart';
+import 'habit_progress_card.dart';
 import 'habit_widgets.dart';
 import 'sheet.dart';
 import 'theme.dart';
@@ -668,27 +671,21 @@ class _DeleteButton extends StatelessWidget {
         onTap: () async {
           final store = StoreScope.of(context);
           final navigator = Navigator.of(context);
-          final confirmed = await showDialog<bool>(
-            context: context,
-            builder: (context) => AlertDialog(
-              backgroundColor: ControlColors.of(context).card,
-              title: Text('Delete ${habit.name}?'),
-              content: const Text(
-                'Its streaks and history go with it. This cannot be undone.',
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context, false),
-                  child: const Text('Keep'),
-                ),
-                FilledButton(
-                  onPressed: () => Navigator.pop(context, true),
-                  child: const Text('Delete'),
-                ),
-              ],
+          final confirmed = await confirmAction(
+            context,
+            icon: Icons.delete_outline_rounded,
+            tone: DialogTone.danger,
+            title: 'Delete ${habit.name}?',
+            message: 'Its streaks and history go with it.',
+            detail: const DialogNote(
+              icon: Icons.history_toggle_off_rounded,
+              text: 'This cannot be undone.',
+              tone: DialogTone.danger,
             ),
+            cancelLabel: 'Keep',
+            confirmLabel: 'Delete',
           );
-          if (confirmed ?? false) {
+          if (confirmed) {
             unawaited(store.removeHabit(habit.id));
             navigator.pop(true);
           }
@@ -728,10 +725,17 @@ class HabitDetailSheet extends StatefulWidget {
 }
 
 class _HabitDetailSheetState extends State<HabitDetailSheet> {
-  late DateTime _selected = dateOnly(
-    widget.initialDay ?? StoreScope.of(context).wallNow(),
-  );
-  late DateTime _month = DateTime(_selected.year, _selected.month);
+  late DateTime _selected = _openingDay();
+
+  /// The day asked for, unless the habit did not exist yet, then today.
+  DateTime _openingDay() {
+    final store = StoreScope.of(context);
+    final today = dateOnly(store.wallNow());
+    final asked = dateOnly(widget.initialDay ?? today);
+    final habit = store.habitById(widget.habitId);
+    if (habit == null) return today;
+    return store.habitStats(habit).canLog(asked) ? asked : today;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -857,18 +861,33 @@ class _HabitDetailSheetState extends State<HabitDetailSheet> {
                   },
                 ),
                 const SizedBox(height: 16),
-                HabitLogCard(habit: habit, stats: stats, day: _selected),
+                HabitProgressCard(stats: stats),
                 const SizedBox(height: 16),
+                // Pick a day in the history, then log it just below.
                 ControlCard(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 8, 12),
-                  child: HabitCalendar(
-                    stats: stats,
-                    month: _month,
-                    selected: _selected,
-                    onSelect: (day) => setState(() => _selected = day),
-                    onMonthChanged: (month) => setState(() => _month = month),
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('History', style: theme.textTheme.titleMedium),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Tap a day to see it or fill it in.',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: colors.textMuted,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      HabitHeatmap(
+                        stats: stats,
+                        selected: _selected,
+                        onSelect: (day) => setState(() => _selected = day),
+                      ),
+                    ],
                   ),
                 ),
+                const SizedBox(height: 16),
+                HabitLogCard(habit: habit, stats: stats, day: _selected),
                 if (habit.reminders.isNotEmpty) ...[
                   const SizedBox(height: 16),
                   ControlCard(
@@ -962,6 +981,29 @@ class HabitLogCard extends StatelessWidget {
     final done = stats.isDoneOn(day);
     final isToday = day == stats.today;
     final running = store.habitTimer?.habitId == habit.id;
+
+    if (!stats.canLog(day)) {
+      return ControlCard(
+        child: Row(
+          children: [
+            Icon(
+              Icons.event_busy_rounded,
+              color: ControlColors.of(context).textMuted,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                '${describeHabitDay(context, day, stats.today)} is before '
+                '${habit.name} began, so there is nothing to log. Its '
+                'history starts '
+                '${MaterialLocalizations.of(context).formatMediumDate(stats.firstDay)}.',
+                style: const TextStyle(height: 1.4),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
 
     return ControlCard(
       child: Column(

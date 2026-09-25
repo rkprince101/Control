@@ -9,6 +9,7 @@ import 'app_picker_sheet.dart';
 import 'block_icon.dart';
 import 'place_picker_sheet.dart';
 import 'controls.dart';
+import 'dialogs.dart';
 import 'shortcut_help_sheet.dart';
 import 'sheet.dart';
 import 'theme.dart';
@@ -1171,25 +1172,16 @@ class _DeleteButton extends StatelessWidget {
       onTap: () async {
         final store = StoreScope.of(context);
         final navigator = Navigator.of(context);
-        final confirmed = await showDialog<bool>(
-          context: context,
-          builder: (context) => AlertDialog(
-            backgroundColor: ControlColors.of(context).card,
-            title: Text('Delete ${block.name}?'),
-            content: const Text('The apps it covers stop being blocked.'),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context, false),
-                child: const Text('Keep'),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.pop(context, true),
-                child: const Text('Delete'),
-              ),
-            ],
-          ),
+        final confirmed = await confirmAction(
+          context,
+          icon: Icons.delete_outline_rounded,
+          tone: DialogTone.danger,
+          title: 'Delete ${block.name}?',
+          message: 'The apps it covers stop being blocked.',
+          cancelLabel: 'Keep',
+          confirmLabel: 'Delete',
         );
-        if (confirmed ?? false) {
+        if (confirmed) {
           await store.removeBlock(block.id);
           navigator.pop();
         }

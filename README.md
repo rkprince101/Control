@@ -93,8 +93,9 @@ Implemented on Android; not yet tested on a physical device:
 - **Motion**: the wavy progress bars travel continuously; Settings chooses Off,
   Calm or Lively, and Android's remove-animations setting stops them.
 - **Focus timer**: pomodoro (15/25/50/90 min) or stopwatch from the block card.
-  One sheet runs the whole cycle: start, a live ring (counting down for a
-  pomodoro), pause and resume (paused time is not credited), finish, then a
+  One sheet runs the whole cycle: start, a live face (a wavy ring filling
+  toward the end of a pomodoro or break; a sixty-tick dial for a stopwatch,
+  which has no end to fill toward), pause and resume (paused time is not credited), finish, then a
   5 minute break, 15 after every fourth pomodoro. A pomodoro ends itself at its
   finish line, even with the app closed, and its minutes land on the day they
   were worked. Reaching the daily goal mid-session unlocks at once, without
@@ -123,11 +124,54 @@ Implemented on Android; not yet tested on a physical device:
   splits a run across midnight). Each habit has a name, description, icon,
   colour, due weekdays and any number of reminders. Cards show a tile grid of
   recent weeks, the current and best streak, and the 30-day completion rate;
-  the detail sheet adds a month calendar for browsing and back-filling any
-  past day. A day off never breaks a streak. Days done climb a rank ladder
-  (Seed to Old growth), and sixteen colours. Reminders are native alarms, on
+  the detail sheet adds a Week / Month / Year progress box (a bar per day, or
+  per month for a year, filled toward that day's or month's goal, with the
+  period's goal, amount completed and completion share, and arrows to step
+  back through earlier periods) and a GitHub-style history: a column per
+  week back to the habit's first day, scrolling sideways from the latest,
+  shaded by how much of each day was done. Tapping any past day selects it
+  for logging just below, which is how a missed day gets filled in. A day off never breaks a streak. Days done climb a rank ladder
+  (Seed to Old growth), drawn: a compact card on the Habits page shows the
+  plant swaying and growing a little with every check-in, and opens a sheet
+  with the full scene, the pace and a projected date for the next stage, the
+  journey with the day each stage was reached, and how growth works. A new
+  stage is celebrated once. Nothing ever wilts: a missed day slows growth but
+  never takes it back. A habit's history starts the day it was created: days
+  before it cannot be logged, and it is not due on them. Sixteen colours. Reminders are native alarms, on
   the minute when exact timing is allowed, that re-arm themselves, survive
   reboots, and stay quiet once the habit is done that day.
+- **Todos**, ported from Hushroom: each todo is due on a day or has no due
+  date. A day shows what is overdue (in red), due, upcoming, undated, and
+  finished on it; unfinished todos carry forward as overdue, and one finished
+  after its day is marked late. A month date strip moves between days, a bar
+  shows the day's progress, and the composer adds todos one after another.
+  Swipe a todo left to edit or delete it; tap it for its steps, which tick
+  the todo off when all are done (and are all ticked when it is). The drawer
+  counts what is still open today.
+- **Notes**, ported from Hushroom: rich text (bold, italic, underline,
+  strikethrough, three heading sizes, checklists, bullet and numbered lists,
+  text colour) in a full-screen editor that saves as you type and discards
+  a note left empty. The list is searchable, pinned first; swipe right to
+  pin, left to delete. Todos and notes also show up in the top search.
+- **Money**, ported from Productivity Island: a month-by-month income and
+  expense log in any of 44 currencies. Each month opens on the balance the
+  last one closed on (brought forward) and shows its surplus or deficit,
+  income against spending, and the entries in expense and income lists.
+  Stats has the savings rate, a donut per side by category, a year of daily
+  spending as a scrollable heatmap (days money came in are framed; tap one
+  for what happened that day, or to add to it), and where the month's money
+  went. Manage gathers investments (expenses filed under Investment, with
+  any returns), budgets over any range of days, optionally for one category,
+  and money lent or borrowed, settled with a tap. Deletes can be undone from
+  the snackbar.
+- **App lock**, ported from Productivity Island: a PIN of 4 to 12 digits in
+  front of any pages you choose (everything but Settings, which holds the
+  PIN's own controls, and asks for it before they change). A locked page is
+  not built at all: it shows a number pad, opens on the digit that completes
+  the PIN, keeps its contents out of search, its count out of the drawer and
+  its rules out of the drawer's list. Pages lock again whenever you leave the
+  app, or at once from the lock in the search bar. Only a salted SHA-256 of
+  the PIN is stored: privacy from whoever picks the phone up, not a vault.
 - **Navigation** laid out like Gmail: a floating search bar (menu, search
   across rules, habits and pages, and a status avatar that opens Settings), a
   modal drawer listing pages with live counts and every rule as a label, and a
@@ -257,10 +301,10 @@ and why wireless debugging is the route that works the same on every make.
 control/
 ├── lib/                          Flutter app
 │   ├── main.dart                 Entry point, theme wiring, HomeShell
-│   ├── data/                     Local store, block codec, focus sessions, habits, password hashing
+│   ├── data/                     Local store, block codec, focus sessions, habits, todos, notes, money, page lock, password hashing
 │   ├── platform/                 MethodChannel seam. Ships plans/rules down, reads measurements up.
 │   ├── state/                    ControlStore. Drives the engine, publishes plans.
-│   └── ui/                       Blocks, Habits, Insights, Settings, navigation shell, sheets, theme
+│   └── ui/                       Blocks, Habits, Todos, Notes, Money, Insights, Settings, page lock, navigation shell, sheets, theme
 │
 ├── packages/control_core/        Pure Dart rule engine. No Flutter, no dart:io.
 │   ├── lib/src/engine.dart       Evaluates blocks into plans
@@ -573,6 +617,17 @@ primary container; a sheet with a single action keeps it top left. The title
 stays centred while it fits and gives way rather than overlap
 ([`sheet.dart`](lib/ui/sheet.dart)).
 
+Every dialog shares one layout too ([`dialogs.dart`](lib/ui/dialogs.dart)):
+the page behind dims and softens, the dialog grows into place, and a tonal
+badge heads it, green for a neutral step, amber for one that is hard to take
+back, red for a delete or a spent emergency unlock. The title and message are
+centred, a tinted note says what is at stake or what went wrong, and the two
+buttons fill the width side by side, stacking with the confirming one on top
+once large text would squeeze them. Password and PIN fields have a show/hide
+toggle, and the emergency-unlock dialog shows the unlocks as dots: those kept,
+the one about to go, those already spent. The date and time pickers use the
+same shape and pill buttons.
+
 [`ExpressiveProgress`](lib/ui/expressive_progress.dart) is a custom wavy linear
 indicator with a 4dp stroke, rounded caps/track, a visible track gap, and a stop
 dot that hides before colliding with the active stroke. The wave travels along
@@ -711,6 +766,10 @@ No physical-device testing has been performed yet. On a test device, verify:
 | Theme, colours, type | `lib/ui/theme.dart` |
 | Navigation shell, drawer, search | `lib/main.dart`, `lib/ui/navigation.dart` |
 | Habit streaks, ranks, persistence | `lib/data/habits.dart`, `test/habits_test.dart` |
+| Todo sections, overdue and steps | `lib/data/todos.dart`, `test/todos_notes_test.dart` |
+| Note editor (flutter_quill) | `lib/ui/note_editor.dart` |
+| Money totals, budgets, loans, currencies | `lib/data/money.dart`, `test/money_test.dart` |
+| Which pages the PIN can lock | `lockableDestinations` in `lib/ui/page_lock.dart` |
 | Habit reminders | `android/.../surface/HabitReminders.kt` and `HabitRemindersTest.kt` |
 
 Keep Dart and native persisted-rule semantics aligned. Schedule, category,

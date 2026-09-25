@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'package:control_core/control_core.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 
 import '../data/focus.dart';
 import '../main.dart';
@@ -194,14 +195,27 @@ class _FocusTimerSheetState extends State<FocusTimerSheet> {
         : running.plannedWork! - length;
     final paused = running.isPaused;
 
-    // A pomodoro's ring is the session. A stopwatch has no end of its own, so
-    // its ring is the day's goal instead: the thing it is working towards.
-    final target = _target(widget.block);
-    final progress = remaining != null
-        ? length.inMilliseconds / running.plannedWork!.inMilliseconds
-        : target <= Duration.zero
-        ? 1.0
-        : store.focusToday.inMilliseconds / target.inMilliseconds;
+    final centre = Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          formatClock(remaining != null ? _positive(remaining) : length),
+          style: theme.textTheme.displayMedium?.copyWith(
+            fontFeatures: const [FontFeature.tabularFigures()],
+            fontWeight: FontWeight.w700,
+            color: paused ? colors.textMuted : null,
+          ),
+        ),
+        Text(
+          paused
+              ? 'Paused'
+              : remaining != null
+              ? 'left'
+              : 'focused',
+          style: theme.textTheme.titleSmall?.copyWith(color: colors.textMuted),
+        ),
+      ],
+    );
 
     return Column(
       key: const ValueKey('running'),
@@ -222,38 +236,30 @@ class _FocusTimerSheetState extends State<FocusTimerSheet> {
         ),
         const SizedBox(height: 20),
         Center(
-          child: _TimerRing(
-            progress: progress,
-            color: paused ? colors.textMuted : scheme.primary,
-            track: colors.cardRaised,
+          child: _TimerFace(
             semanticsLabel: remaining != null
                 ? '${formatClock(_positive(remaining))} left'
                 : '${formatClock(length)} focused',
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  formatClock(
-                    remaining != null ? _positive(remaining) : length,
+            // A pomodoro has a finish line, so its face fills towards it. A
+            // stopwatch has none: a filling ring would promise an end that is
+            // not there, so it gets a dial whose seconds come round again.
+            child: remaining != null
+                ? _WavyRing(
+                    progress:
+                        length.inMilliseconds /
+                        running.plannedWork!.inMilliseconds,
+                    color: paused ? colors.textMuted : scheme.primary,
+                    track: colors.cardRaised,
+                    moving: !paused,
+                    child: centre,
+                  )
+                : _StopwatchDial(
+                    elapsed: length,
+                    running: !paused,
+                    color: paused ? colors.textMuted : scheme.primary,
+                    track: colors.cardRaised,
+                    child: centre,
                   ),
-                  style: theme.textTheme.displayMedium?.copyWith(
-                    fontFeatures: const [FontFeature.tabularFigures()],
-                    fontWeight: FontWeight.w700,
-                    color: paused ? colors.textMuted : null,
-                  ),
-                ),
-                Text(
-                  paused
-                      ? 'Paused'
-                      : remaining != null
-                      ? 'left'
-                      : 'focused',
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    color: colors.textMuted,
-                  ),
-                ),
-              ],
-            ),
           ),
         ),
         const SizedBox(height: 24),
@@ -399,28 +405,31 @@ class _FocusTimerSheetState extends State<FocusTimerSheet> {
         ),
         const SizedBox(height: 20),
         Center(
-          child: _TimerRing(
-            progress: progress,
-            color: scheme.tertiary,
-            track: colors.cardRaised,
+          child: _TimerFace(
             semanticsLabel: '${formatClock(left)} of break left',
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  formatClock(left),
-                  style: theme.textTheme.displayMedium?.copyWith(
-                    fontFeatures: const [FontFeature.tabularFigures()],
-                    fontWeight: FontWeight.w700,
+            child: _WavyRing(
+              progress: progress,
+              color: scheme.tertiary,
+              track: colors.cardRaised,
+              moving: true,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    formatClock(left),
+                    style: theme.textTheme.displayMedium?.copyWith(
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
-                ),
-                Text(
-                  'break',
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    color: colors.textMuted,
+                  Text(
+                    'break',
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      color: colors.textMuted,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
@@ -578,97 +587,249 @@ class _GoalCard extends StatelessWidget {
   }
 }
 
-/// A round clock face: a track, and an arc for how far along it is.
-///
-/// The arc eases between the once-a-second updates, so it sweeps rather than
-/// ticks, unless the system asks for less motion.
-class _TimerRing extends StatelessWidget {
-  const _TimerRing({
-    required this.progress,
-    required this.color,
-    required this.track,
-    required this.child,
-    required this.semanticsLabel,
-  });
+/// Sizes a timer face to the sheet. The face draws itself and holds the clock.
+class _TimerFace extends StatelessWidget {
+  const _TimerFace({required this.semanticsLabel, required this.child});
 
-  final double progress;
-  final Color color;
-  final Color track;
-  final Widget child;
   final String semanticsLabel;
+  final Widget child;
 
   @override
   Widget build(BuildContext context) {
     final width = MediaQuery.sizeOf(context).width;
     final size = math.min(260.0, math.max(180.0, width - 120));
-    final value = progress.isNaN ? 0.0 : progress.clamp(0.0, 1.0);
-
     return Semantics(
       label: semanticsLabel,
       child: ExcludeSemantics(
-        child: SizedBox.square(
-          dimension: size,
-          child: TweenAnimationBuilder<double>(
-            tween: Tween(end: value),
-            duration: MediaQuery.disableAnimationsOf(context)
-                ? Duration.zero
-                : const Duration(milliseconds: 900),
-            builder: (context, animated, child) => CustomPaint(
-              painter: _RingPainter(
-                progress: animated,
-                color: color,
-                track: track,
-              ),
-              child: child,
-            ),
-            child: Center(
-              child: Padding(
-                padding: const EdgeInsets.all(28),
-                child: FittedBox(child: child),
-              ),
-            ),
-          ),
-        ),
+        child: SizedBox.square(dimension: size, child: child),
       ),
     );
   }
 }
 
-class _RingPainter extends CustomPainter {
-  const _RingPainter({
+/// The clock in the middle of a face, kept clear of the rim.
+class _FaceCentre extends StatelessWidget {
+  const _FaceCentre({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => Center(
+    child: Padding(
+      padding: const EdgeInsets.all(34),
+      child: FittedBox(child: child),
+    ),
+  );
+}
+
+/// The pomodoro and break face: the app's wavy indicator, bent into a circle.
+///
+/// The value arrives once a second; it eases across each second so the arc
+/// sweeps rather than ticks, while the wave travels along it at the speed set
+/// in Settings.
+class _WavyRing extends StatelessWidget {
+  const _WavyRing({
     required this.progress,
     required this.color,
     required this.track,
+    required this.moving,
+    required this.child,
   });
 
   final double progress;
   final Color color;
   final Color track;
 
-  static const _stroke = 14.0;
+  /// False while paused: the wave holds still with the clock.
+  final bool moving;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final value = progress.isNaN ? 0.0 : progress.clamp(0.0, 1.0);
+    return TweenAnimationBuilder<double>(
+      tween: Tween(end: value),
+      duration: MediaQuery.disableAnimationsOf(context)
+          ? Duration.zero
+          : const Duration(milliseconds: 900),
+      builder: (context, animated, centre) => ExpressiveCircularProgress(
+        value: animated,
+        color: color,
+        trackColor: track,
+        // Material's proportions for a large ring: a slim stroke and a gentle
+        // wave, so it reads as a wave rather than a scribble.
+        strokeWidth: 10,
+        amplitude: 2.6,
+        wavelength: 44,
+        animate: moving,
+        child: centre,
+      ),
+      child: _FaceCentre(child: child),
+    );
+  }
+}
+
+/// The stopwatch face: sixty second ticks round the rim.
+///
+/// The ticks light up as the minute passes and start again at the top of the
+/// next, the newest brightest, with a hand sweeping smoothly between them. It
+/// shows time moving without pretending there is an end. Paused, it holds its
+/// place in a muted tone. With motion off in Settings, or reduced motion on
+/// the device, the hand does not sweep and the ticks step once a second.
+class _StopwatchDial extends StatefulWidget {
+  const _StopwatchDial({
+    required this.elapsed,
+    required this.running,
+    required this.color,
+    required this.track,
+    required this.child,
+  });
+
+  final Duration elapsed;
+  final bool running;
+  final Color color;
+  final Color track;
+  final Widget child;
+
+  @override
+  State<_StopwatchDial> createState() => _StopwatchDialState();
+}
+
+class _StopwatchDialState extends State<_StopwatchDial>
+    with SingleTickerProviderStateMixin {
+  late final Ticker _ticker = createTicker((_) => setState(() {}));
+
+  /// The last whole-second reading, and when it arrived, so the hand can
+  /// sweep across the second before the next one.
+  late Duration _base = widget.elapsed;
+  DateTime _baseAt = DateTime.now();
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _configure();
+  }
+
+  @override
+  void didUpdateWidget(_StopwatchDial oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.elapsed != widget.elapsed) {
+      _base = widget.elapsed;
+      _baseAt = DateTime.now();
+    }
+    _configure();
+  }
+
+  void _configure() {
+    final sweep =
+        widget.running &&
+        WaveMotionScope.of(context) != WaveMotion.off &&
+        !MediaQuery.disableAnimationsOf(context) &&
+        TickerMode.valuesOf(context).enabled;
+    if (sweep && !_ticker.isActive) {
+      _ticker.start();
+    } else if (!sweep && _ticker.isActive) {
+      _ticker.stop();
+    }
+  }
+
+  @override
+  void dispose() {
+    _ticker.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    var shown = widget.elapsed;
+    if (_ticker.isActive) {
+      // Never run ahead of the next real reading by more than a second.
+      final since = DateTime.now().difference(_baseAt);
+      shown =
+          _base +
+          (since > const Duration(milliseconds: 999)
+              ? const Duration(milliseconds: 999)
+              : since);
+    }
+    return RepaintBoundary(
+      child: CustomPaint(
+        painter: _DialPainter(
+          seconds: (shown.inMilliseconds % 60000) / 1000,
+          sweeping: _ticker.isActive,
+          color: widget.color,
+          track: widget.track,
+        ),
+        child: _FaceCentre(child: widget.child),
+      ),
+    );
+  }
+}
+
+class _DialPainter extends CustomPainter {
+  const _DialPainter({
+    required this.seconds,
+    required this.sweeping,
+    required this.color,
+    required this.track,
+  });
+
+  /// Into the current minute, 0 to just under 60, with a fraction.
+  final double seconds;
+  final bool sweeping;
+  final Color color;
+  final Color track;
 
   @override
   void paint(Canvas canvas, Size size) {
-    final rect = (Offset.zero & size).deflate(_stroke / 2);
-    final paint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = _stroke
-      ..strokeCap = StrokeCap.round;
-    canvas.drawArc(rect, 0, math.pi * 2, false, paint..color = track);
-    if (progress > 0) {
-      canvas.drawArc(
-        rect,
-        -math.pi / 2,
-        math.pi * 2 * progress,
-        false,
-        paint..color = color,
+    final centre = size.center(Offset.zero);
+    final outer = math.min(size.width, size.height) / 2 - 3;
+    if (outer <= 20) return;
+    final current = seconds.floor() % 60;
+    final paint = Paint()..strokeCap = StrokeCap.round;
+
+    for (var i = 0; i < 60; i++) {
+      final angle = -math.pi / 2 + i * math.pi * 2 / 60;
+      final direction = Offset(math.cos(angle), math.sin(angle));
+      final major = i % 5 == 0;
+      final isCurrent = i == current;
+      final lit = i <= current;
+      final length = isCurrent ? 20.0 : (major ? 14.0 : 9.0);
+      // The trail fades behind the newest tick, so the eye finds "now".
+      final Color tick;
+      if (!lit) {
+        tick = track;
+      } else if (isCurrent) {
+        tick = color;
+      } else {
+        tick = color.withValues(alpha: 0.45 + 0.45 * (i + 1) / (current + 1));
+      }
+      paint
+        ..color = tick
+        ..strokeWidth = isCurrent ? 5 : (major ? 3.5 : 2.5);
+      canvas.drawLine(
+        centre + direction * (outer - length),
+        centre + direction * outer,
+        paint,
+      );
+    }
+
+    // The hand: a dot just inside the ticks, sweeping between them.
+    if (sweeping) {
+      final angle = -math.pi / 2 + seconds * math.pi * 2 / 60;
+      canvas.drawCircle(
+        centre + Offset(math.cos(angle), math.sin(angle)) * (outer - 30),
+        5,
+        Paint()..color = color,
       );
     }
   }
 
   @override
-  bool shouldRepaint(_RingPainter old) =>
-      old.progress != progress || old.color != color || old.track != track;
+  bool shouldRepaint(_DialPainter old) =>
+      old.seconds != seconds ||
+      old.sweeping != sweeping ||
+      old.color != color ||
+      old.track != track;
 }
 
 /// Which view the statistics sheet is showing.

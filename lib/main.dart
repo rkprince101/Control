@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter_quill/flutter_quill.dart'
+    show FlutterQuillLocalizations;
 
 import 'state/control_store.dart';
 import 'ui/block_editor_sheet.dart';
@@ -8,9 +10,15 @@ import 'ui/expressive_progress.dart';
 import 'ui/habit_sheets.dart';
 import 'ui/habits_page.dart';
 import 'ui/insights_page.dart';
+import 'ui/money_page.dart';
+import 'ui/money_sheets.dart';
 import 'ui/navigation.dart';
+import 'ui/note_editor.dart';
+import 'ui/notes_page.dart';
+import 'ui/page_lock.dart';
 import 'ui/settings_page.dart';
 import 'ui/theme.dart';
+import 'ui/todos_page.dart';
 
 void main() {
   runApp(ControlApp(store: ControlStore()));
@@ -38,6 +46,8 @@ class ControlApp extends StatelessWidget {
               pitchBlack: choice == AppThemeChoice.pitchBlack,
             ),
             themeMode: choice.themeMode,
+            // The note editor's toolbar reads its button labels from here.
+            localizationsDelegates: const [FlutterQuillLocalizations.delegate],
             // Above the navigator, so sheets and dialogs follow it too.
             builder: (context, child) => WaveMotionScope(
               motion: store.waveMotion,
@@ -61,6 +71,14 @@ class StoreScope extends InheritedNotifier<ControlStore> {
 
   static ControlStore of(BuildContext context) {
     final scope = context.dependOnInheritedWidgetOfExactType<StoreScope>();
+    assert(scope?.notifier != null, 'No StoreScope above this widget');
+    return scope!.notifier!;
+  }
+
+  /// The store without subscribing to its changes: for initState and event
+  /// handlers, where [of] is not allowed or not wanted.
+  static ControlStore read(BuildContext context) {
+    final scope = context.getInheritedWidgetOfExactType<StoreScope>();
     assert(scope?.notifier != null, 'No StoreScope above this widget');
     return scope!.notifier!;
   }
@@ -88,11 +106,23 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   bool _fabExtended = true;
   bool _railExtended = false;
 
-  static const _pages = {
-    Destination.blocks: BlocksPage(),
-    Destination.habits: HabitsPage(),
-    Destination.insights: InsightsPage(),
-    Destination.settings: SettingsPage(),
+  /// True while the todo composer holds the bottom of the screen; the action
+  /// button steps aside for it.
+  bool _composingTodo = false;
+  final _todos = GlobalKey<TodosPageState>();
+
+  late final Map<Destination, Widget> _pages = {
+    Destination.blocks: const BlocksPage(),
+    Destination.habits: const HabitsPage(),
+    Destination.todos: TodosPage(
+      key: _todos,
+      onComposingChanged: (composing) =>
+          setState(() => _composingTodo = composing),
+    ),
+    Destination.notes: const NotesPage(),
+    Destination.money: const MoneyPage(),
+    Destination.insights: const InsightsPage(),
+    Destination.settings: const SettingsPage(),
   };
 
   @override
@@ -113,9 +143,13 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   /// Permissions are granted on system settings screens, and habits are done
   /// while the app is closed, so returning to the app is the moment to re-read
   /// everything.
+  ///
+  /// Leaving the app closes every locked page again, so whoever picks the
+  /// phone up next meets the PIN.
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) StoreScope.of(context).refreshAll();
+    if (state == AppLifecycleState.paused) StoreScope.read(context).lockPages();
   }
 
   void _select(Destination destination) {
@@ -147,23 +181,50 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     return false;
   }
 
-  _PageAction? get _action => switch (_destination) {
-    Destination.blocks => (
-      icon: Icons.add,
-      label: 'New block',
-      onPressed: () => BlockEditorSheet.show(context),
-    ),
-    Destination.habits => (
-      icon: Icons.add,
-      label: 'New habit',
-      onPressed: () => HabitEditorSheet.show(context),
-    ),
-    Destination.insights || Destination.settings => null,
-  };
+  _PageAction? get _action {
+    // A locked page offers nothing to do until it is opened.
+    if (StoreScope.read(context).isPageLocked(_destination.name)) {
+      return null;
+    }
+    return switch (_destination) {
+      Destination.blocks => (
+        icon: Icons.add,
+        label: 'New block',
+        onPressed: () => BlockEditorSheet.show(context),
+      ),
+      Destination.habits => (
+        icon: Icons.add,
+        label: 'New habit',
+        onPressed: () => HabitEditorSheet.show(context),
+      ),
+      Destination.todos => (
+        icon: Icons.add_task_rounded,
+        label: 'New todo',
+        onPressed: () => _todos.currentState?.startAdding(),
+      ),
+      Destination.notes => (
+        icon: Icons.edit_note_rounded,
+        label: 'New note',
+        onPressed: () => NoteEditorScreen.open(context),
+      ),
+      Destination.money => (
+        icon: Icons.add_rounded,
+        label: 'New entry',
+        onPressed: () => EntryEditorSheet.show(context),
+      ),
+      Destination.insights || Destination.settings => null,
+    };
+  }
 
   @override
   Widget build(BuildContext context) {
     final wide = MediaQuery.sizeOf(context).width >= 840;
+    // Rebuilt when a page locks or unlocks, which shows or hides the action.
+    // Locking the todos page mid-sentence throws its composer away, and the
+    // page cannot say so from inside its own disposal.
+    if (StoreScope.of(context).isPageLocked(Destination.todos.name)) {
+      _composingTodo = false;
+    }
     final action = _action;
 
     final content = NotificationListener<UserScrollNotification>(
@@ -174,7 +235,13 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
           for (final destination in Destination.values)
             TickerMode(
               enabled: destination == _destination,
-              child: _pages[destination]!,
+              child: destination == Destination.settings
+                  ? _pages[destination]!
+                  : PageLockGate(
+                      destination: destination,
+                      active: destination == _destination,
+                      child: _pages[destination]!,
+                    ),
             ),
         ],
       ),
@@ -228,7 +295,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
                   )
                 : content,
           ),
-          floatingActionButton: wide || action == null
+          floatingActionButton: wide || action == null || _composingTodo
               ? null
               : CollapsingFab(
                   extended: _fabExtended,

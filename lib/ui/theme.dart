@@ -248,6 +248,38 @@ ThemeData buildControlTheme({
       titleTextStyle: typography.headlineSmall,
       contentTextStyle: typography.bodyMedium?.copyWith(height: 1.4),
     ),
+    // The pickers are dialogs too, so they wear the same shape and buttons
+    // as the app's own: a tonal header, and a filled pill to confirm.
+    datePickerTheme: DatePickerThemeData(
+      backgroundColor: scheme.surfaceContainerHigh,
+      surfaceTintColor: Colors.transparent,
+      shape: RoundedRectangleBorder(borderRadius: Shapes.sheet),
+      headerBackgroundColor: scheme.primaryContainer,
+      headerForegroundColor: scheme.onPrimaryContainer,
+      todayBorder: BorderSide(color: scheme.primary, width: 1.5),
+      dividerColor: Colors.transparent,
+      cancelButtonStyle: _pickerButton(
+        scheme.surfaceContainerHighest,
+        scheme.onSurface,
+      ),
+      confirmButtonStyle: _pickerButton(scheme.primary, scheme.onPrimary),
+    ),
+    timePickerTheme: TimePickerThemeData(
+      backgroundColor: scheme.surfaceContainerHigh,
+      shape: RoundedRectangleBorder(borderRadius: Shapes.sheet),
+      dialBackgroundColor: scheme.surfaceContainerHighest,
+      hourMinuteShape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+      ),
+      dayPeriodShape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+      ),
+      cancelButtonStyle: _pickerButton(
+        scheme.surfaceContainerHighest,
+        scheme.onSurface,
+      ),
+      confirmButtonStyle: _pickerButton(scheme.primary, scheme.onPrimary),
+    ),
     bottomSheetTheme: BottomSheetThemeData(
       backgroundColor: scheme.surface,
       surfaceTintColor: Colors.transparent,
@@ -363,6 +395,16 @@ ThemeData buildControlTheme({
     ),
   );
 }
+
+/// A picker's Cancel or OK as a pill, matching the app's dialog buttons.
+ButtonStyle _pickerButton(Color background, Color foreground) =>
+    TextButton.styleFrom(
+      backgroundColor: background,
+      foregroundColor: foreground,
+      minimumSize: const Size(88, 44),
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      shape: const StadiumBorder(),
+    );
 
 /// System typography stays available offline, including on the first launch.
 TextTheme _typographyFor(ColorScheme scheme) {

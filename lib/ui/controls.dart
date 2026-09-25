@@ -15,6 +15,7 @@ class ControlSegmented<T> extends StatelessWidget {
     required this.value,
     required this.onChanged,
     this.compact = false,
+    this.expand = false,
     super.key,
   });
 
@@ -24,6 +25,10 @@ class ControlSegmented<T> extends StatelessWidget {
 
   /// Tighter padding and type, for placing beside a heading.
   final bool compact;
+
+  /// Fills the width with equal segments, for a switch that heads a card.
+  /// Labels shrink rather than wrap, so every option stays on screen.
+  final bool expand;
 
   @override
   Widget build(BuildContext context) {
@@ -36,19 +41,39 @@ class ControlSegmented<T> extends StatelessWidget {
         borderRadius: BorderRadius.circular(compact ? 16 : 20),
       ),
       padding: EdgeInsets.all(compact ? 3 : 4),
-      child: Wrap(
-        spacing: 4,
-        runSpacing: 4,
-        children: [
-          for (final (optionValue, label) in options)
-            _Segment(
-              label: label,
-              selected: optionValue == value,
-              compact: compact,
-              onTap: () => onChanged(optionValue),
+      child: expand
+          ? Row(
+              children: [
+                for (final (index, (optionValue, label)) in options.indexed)
+                  Expanded(
+                    child: Padding(
+                      padding: EdgeInsetsDirectional.only(
+                        start: index == 0 ? 0 : 4,
+                      ),
+                      child: _Segment(
+                        label: label,
+                        selected: optionValue == value,
+                        compact: compact,
+                        fill: true,
+                        onTap: () => onChanged(optionValue),
+                      ),
+                    ),
+                  ),
+              ],
+            )
+          : Wrap(
+              spacing: 4,
+              runSpacing: 4,
+              children: [
+                for (final (optionValue, label) in options)
+                  _Segment(
+                    label: label,
+                    selected: optionValue == value,
+                    compact: compact,
+                    onTap: () => onChanged(optionValue),
+                  ),
+              ],
             ),
-        ],
-      ),
     );
   }
 }
@@ -59,12 +84,16 @@ class _Segment extends StatelessWidget {
     required this.selected,
     required this.compact,
     required this.onTap,
+    this.fill = false,
   });
 
   final String label;
   final bool selected;
   final bool compact;
   final VoidCallback onTap;
+
+  /// Takes the width it is given and shrinks its label to fit.
+  final bool fill;
 
   @override
   Widget build(BuildContext context) {
@@ -100,10 +129,12 @@ class _Segment extends StatelessWidget {
                 borderRadius: radius,
               ),
               child: Center(
-                widthFactor: 1,
+                widthFactor: fill ? null : 1,
                 heightFactor: 1,
                 child: Text(
                   label,
+                  maxLines: 1,
+                  overflow: fill ? TextOverflow.ellipsis : null,
                   style:
                       (compact
                               ? theme.textTheme.labelMedium

@@ -371,4 +371,67 @@ void main() {
       }
     }
   });
+
+  group('circular', () {
+    Widget ring({
+      double value = 0.5,
+      WaveMotion? motion,
+      bool animate = true,
+    }) => MaterialApp(
+      home: Center(
+        child: SizedBox.square(
+          dimension: 200,
+          child: ExpressiveCircularProgress(
+            value: value,
+            motion: motion,
+            animate: animate,
+            semanticsLabel: 'Pomodoro',
+          ),
+        ),
+      ),
+    );
+
+    CustomPainter painter(WidgetTester tester) => tester
+        .widget<CustomPaint>(
+          find.descendant(
+            of: find.byType(ExpressiveCircularProgress),
+            matching: find.byType(CustomPaint),
+          ),
+        )
+        .painter!;
+
+    testWidgets('the wave travels round a partial ring', (tester) async {
+      await tester.pumpWidget(ring());
+      await tester.pump(const Duration(milliseconds: 16));
+      final before = painter(tester);
+      await tester.pump(const Duration(milliseconds: 200));
+      expect(painter(tester).shouldRepaint(before), isTrue);
+      expect(tester.binding.hasScheduledFrame, isTrue);
+    });
+
+    testWidgets('Off, animate false, empty and full all hold still', (
+      tester,
+    ) async {
+      for (final host in [
+        ring(motion: WaveMotion.off),
+        ring(animate: false),
+        ring(value: 0),
+        ring(value: 1),
+      ]) {
+        await tester.pumpWidget(host);
+        await tester.pumpAndSettle();
+        expect(tester.binding.hasScheduledFrame, isFalse);
+      }
+    });
+
+    testWidgets('semantics report the share done', (tester) async {
+      final semantics = tester.ensureSemantics();
+      await tester.pumpWidget(ring(value: 0.426, motion: WaveMotion.off));
+      expect(
+        tester.getSemantics(find.byType(ExpressiveCircularProgress)),
+        matchesSemantics(label: 'Pomodoro', value: '43%'),
+      );
+      semantics.dispose();
+    });
+  });
 }

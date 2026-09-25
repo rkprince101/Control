@@ -13,6 +13,10 @@ import '../data/descriptions.dart';
 import '../data/focus.dart';
 import '../data/habits.dart';
 import '../data/local_store.dart';
+import '../data/money.dart';
+import '../data/notes.dart';
+import '../data/page_lock.dart';
+import '../data/todos.dart';
 import '../data/password.dart';
 import '../platform/enforcement_channel.dart';
 import '../platform/platform_models.dart';
@@ -254,7 +258,10 @@ class ControlStore extends ChangeNotifier {
     _signals = _signals.copyWith(grants: local.loadGrants());
     emergencyUnlocks = local.loadEmergencyUnlocks();
     theme = AppThemeChoice.fromName(local.loadThemeChoice());
-    waveMotion = WaveMotion.fromName(local.loadWaveMotion());
+    // Only a saved choice replaces the default; nothing saved keeps it.
+    if (local.loadWaveMotion() case final saved?) {
+      waveMotion = WaveMotion.fromName(saved);
+    }
     hardMode = local.loadHardMode();
     protectionLock = local.loadProtectionLock();
 
@@ -271,6 +278,32 @@ class ControlStore extends ChangeNotifier {
       _habitLog.putIfAbsent(entry.key, () => entry.value);
     }
     habitTimer ??= local.loadHabitTimer();
+    final knownTodos = _todos.map((todo) => todo.id).toSet();
+    _todos.insertAll(
+      0,
+      local.loadTodos().where((todo) => !knownTodos.contains(todo.id)),
+    );
+    final knownNotes = _notes.map((note) => note.id).toSet();
+    _notes.insertAll(
+      0,
+      local.loadNotes().where((note) => !knownNotes.contains(note.id)),
+    );
+    growthStageSeen = local.loadGrowthStageSeen();
+    final knownEntries = _moneyEntries.map((entry) => entry.id).toSet();
+    _moneyEntries.addAll(
+      local.loadMoneyEntries().where((e) => !knownEntries.contains(e.id)),
+    );
+    final knownBudgets = _budgets.map((budget) => budget.id).toSet();
+    _budgets.addAll(
+      local.loadBudgets().where((b) => !knownBudgets.contains(b.id)),
+    );
+    final knownLoans = _loans.map((loan) => loan.id).toSet();
+    _loans.addAll(local.loadLoans().where((l) => !knownLoans.contains(l.id)));
+    if (local.loadCurrency() case final code?) {
+      currency = Currency.byCode(code);
+    }
+    _moneyBook = null;
+    pageLock = local.loadPageLock();
     if (habitTimer != null) _startHabitTicker();
     // Hydrate persisted commitments before yielding: a concurrent add must not
     // save a partial block or grant list over the loaded state.
@@ -969,12 +1002,530 @@ class ControlStore extends ChangeNotifier {
   int get habitPoints =>
       habits.fold(0, (total, habit) => total + habitStats(habit).totalDone);
 
+  /// The garden: stage, progress, dates reached, pace. Grows from the same
+  /// check-ins as [habitPoints].
+  HabitGrowth get habitGrowth =>
+      HabitGrowth.of(habits.map(habitStats), wallNow());
+
+  // Todos --------------------------------------------------------------------
+  //
+  // Like habits, todos run on the wall clock: a todo is due on the day on the
+  // user's calendar. Each change lands in memory before the first await.
+
+  final List<Todo> _todos = [];
+  List<Todo> get todos => List.unmodifiable(_todos);
+  TodoBook get todoBook => TodoBook(_todos);
+
+  Todo? todoById(String id) =>
+      _todos.where((todo) => todo.id == id).firstOrNull;
+
+  int _idSequence = 0;
+
+  /// Unique within a session even for two ids made in the same microsecond,
+  /// which quick multi-add does.
+  String _newId(String kind) =>
+      '$kind-${DateTime.now().microsecondsSinceEpoch}-${_idSequence++}';
+
+  Future<void> addTodo(String title, DateTime? date) async {
+    final text = title.trim();
+    if (text.isEmpty) return;
+    _todos.insert(
+      0,
+      Todo(
+        id: _newId('todo'),
+        title: text,
+        date: date == null ? null : dateOnly(date),
+        createdAt: wallNow(),
+      ),
+    );
+    await _persistTodos();
+  }
+
+  /// Done becomes undone and the other way round. A todo's steps follow it:
+  /// checking the todo checks every step.
+  Future<void> toggleTodo(String id) async {
+    final index = _todos.indexWhere((todo) => todo.id == id);
+    if (index < 0) return;
+    final todo = _todos[index];
+    final done = !todo.isDone;
+    _todos[index] = todo.copyWith(
+      isDone: done,
+      completedAt: done ? wallNow() : null,
+      clearCompletedAt: !done,
+      subTodos: [for (final step in todo.subTodos) step.copyWith(isDone: done)],
+    );
+    await _persistTodos();
+  }
+
+  Future<void> updateTodo(
+    String id, {
+    String? title,
+    DateTime? date,
+    bool clearDate = false,
+  }) async {
+    final index = _todos.indexWhere((todo) => todo.id == id);
+    if (index < 0) return;
+    final text = title?.trim();
+    _todos[index] = _todos[index].copyWith(
+      title: text == null || text.isEmpty ? null : text,
+      date: date == null ? null : dateOnly(date),
+      clearDate: clearDate,
+    );
+    await _persistTodos();
+  }
+
+  Future<void> removeTodo(String id) async {
+    _todos.removeWhere((todo) => todo.id == id);
+    await _persistTodos();
+  }
+
+  Future<void> addSubTodo(String todoId, String title) async {
+    final text = title.trim();
+    if (text.isEmpty) return;
+    await _editSteps(
+      todoId,
+      (steps) => [...steps, SubTodo(id: _newId('step'), title: text)],
+    );
+  }
+
+  Future<void> toggleSubTodo(String todoId, String stepId) => _editSteps(
+    todoId,
+    (steps) => [
+      for (final step in steps)
+        step.id == stepId ? step.copyWith(isDone: !step.isDone) : step,
+    ],
+  );
+
+  Future<void> updateSubTodo(String todoId, String stepId, String title) {
+    final text = title.trim();
+    if (text.isEmpty) return Future.value();
+    return _editSteps(
+      todoId,
+      (steps) => [
+        for (final step in steps)
+          step.id == stepId ? step.copyWith(title: text) : step,
+      ],
+    );
+  }
+
+  Future<void> removeSubTodo(String todoId, String stepId) => _editSteps(
+    todoId,
+    (steps) => steps.where((step) => step.id != stepId).toList(),
+  );
+
+  /// Changes a todo's steps, then keeps the todo's own state in line with
+  /// them: done exactly when every step is. Adding an unfinished step reopens
+  /// a finished todo.
+  Future<void> _editSteps(
+    String todoId,
+    List<SubTodo> Function(List<SubTodo>) change,
+  ) async {
+    final index = _todos.indexWhere((todo) => todo.id == todoId);
+    if (index < 0) return;
+    var todo = _todos[index].copyWith(subTodos: change(_todos[index].subTodos));
+    if (todo.hasSubTodos) {
+      final allDone = todo.subTodos.every((step) => step.isDone);
+      if (allDone != todo.isDone) {
+        todo = todo.copyWith(
+          isDone: allDone,
+          completedAt: allDone ? wallNow() : null,
+          clearCompletedAt: !allDone,
+        );
+      }
+    }
+    _todos[index] = todo;
+    await _persistTodos();
+  }
+
+  Future<void> _persistTodos() async {
+    notifyListeners();
+    final local = await _store;
+    await local.saveTodos(_todos);
+  }
+
+  // Notes --------------------------------------------------------------------
+
+  final List<Note> _notes = [];
+
+  /// Pinned first, then most recently edited.
+  List<Note> get notes => sortNotes(_notes);
+
+  Note? noteById(String id) =>
+      _notes.where((note) => note.id == id).firstOrNull;
+
+  String newNoteId() => _newId('note');
+
+  /// Adds a note, or replaces the one with the same id.
+  Future<void> upsertNote(Note note) async {
+    final index = _notes.indexWhere((existing) => existing.id == note.id);
+    if (index < 0) {
+      _notes.insert(0, note);
+    } else {
+      _notes[index] = note;
+    }
+    await _persistNotes();
+  }
+
+  Future<void> removeNote(String id) async {
+    _notes.removeWhere((note) => note.id == id);
+    await _persistNotes();
+  }
+
+  /// Pinning is not an edit, so the note keeps its place among the others.
+  Future<void> toggleNotePin(String id) async {
+    final index = _notes.indexWhere((note) => note.id == id);
+    if (index < 0) return;
+    final note = _notes[index];
+    _notes[index] = note.copyWith(
+      pinned: !note.pinned,
+      updatedAt: note.updatedAt,
+    );
+    await _persistNotes();
+  }
+
+  Future<void> _persistNotes() async {
+    notifyListeners();
+    final local = await _store;
+    await local.saveNotes(_notes);
+  }
+
+  // Money --------------------------------------------------------------------
+  //
+  // An income and expense log with budgets and loans. Amounts land on the
+  // user's calendar day, so it runs on the wall clock like todos.
+
+  final List<ExpenseEntry> _moneyEntries = [];
+  final List<Budget> _budgets = [];
+  final List<LoanEntry> _loans = [];
+  Currency currency = Currency.all.first;
+
+  static const maxMoneyEntries = 5000;
+  static const maxBudgets = 200;
+  static const maxLoans = 1000;
+
+  MoneyBook? _moneyBook;
+
+  /// The whole ledger, sorted and indexed once per change.
+  MoneyBook get moneyBook => _moneyBook ??= MoneyBook(
+    entries: _moneyEntries,
+    budgets: _budgets,
+    loans: _loans,
+    currency: currency,
+  );
+
+  Future<void> setCurrency(Currency next) async {
+    if (next.code == currency.code) return;
+    currency = next;
+    _moneyBook = null;
+    notifyListeners();
+    final local = await _store;
+    await local.saveCurrency(next.code);
+  }
+
+  static String _cap(String text, int length) {
+    final trimmed = text.trim();
+    return trimmed.length > length ? trimmed.substring(0, length) : trimmed;
+  }
+
+  /// A detail only belongs to an Other entry.
+  static String _detailFor(String category, String detail) =>
+      category == ExpenseCategory.otherName ? detail.trim() : '';
+
+  Future<void> addMoneyEntry({
+    required EntryType type,
+    required double amount,
+    required String category,
+    required DateTime date,
+    String title = '',
+    String detail = '',
+  }) async {
+    if (amount <= 0 || _moneyEntries.length >= maxMoneyEntries) return;
+    _moneyEntries.add(
+      ExpenseEntry(
+        id: _newId('money'),
+        type: type,
+        title: _cap(title, ExpenseEntry.maxTitleLength),
+        amount: amount.clamp(0, ExpenseEntry.maxAmount).toDouble(),
+        category: category,
+        detail: _detailFor(category, detail),
+        date: dateOnly(date),
+        createdAt: wallNow(),
+      ),
+    );
+    await _persistMoneyEntries();
+  }
+
+  Future<void> updateMoneyEntry(
+    String id, {
+    EntryType? type,
+    double? amount,
+    String? category,
+    DateTime? date,
+    String? title,
+    String? detail,
+  }) async {
+    final index = _moneyEntries.indexWhere((entry) => entry.id == id);
+    if (index < 0) return;
+    final entry = _moneyEntries[index];
+    final nextCategory = category ?? entry.category;
+    _moneyEntries[index] = entry.copyWith(
+      type: type,
+      title: title == null ? null : _cap(title, ExpenseEntry.maxTitleLength),
+      amount: amount?.clamp(0, ExpenseEntry.maxAmount).toDouble(),
+      category: category,
+      // Moving an entry away from Other drops what it said it was.
+      detail: _detailFor(nextCategory, detail ?? entry.detail),
+      date: date == null ? null : dateOnly(date),
+    );
+    await _persistMoneyEntries();
+  }
+
+  Future<void> removeMoneyEntry(String id) async {
+    final before = _moneyEntries.length;
+    _moneyEntries.removeWhere((entry) => entry.id == id);
+    if (_moneyEntries.length == before) return;
+    await _persistMoneyEntries();
+  }
+
+  /// Puts back an entry that was just deleted: the undo on its snackbar.
+  Future<void> restoreMoneyEntry(ExpenseEntry entry) async {
+    if (_moneyEntries.any((existing) => existing.id == entry.id)) return;
+    _moneyEntries.add(entry);
+    await _persistMoneyEntries();
+  }
+
+  Future<void> _persistMoneyEntries() async {
+    _moneyBook = null;
+    notifyListeners();
+    final local = await _store;
+    await local.saveMoneyEntries(_moneyEntries);
+  }
+
+  Future<void> addBudget({
+    required String label,
+    required double amount,
+    required DateTime start,
+    required DateTime end,
+    String category = '',
+  }) async {
+    if (amount <= 0 || _budgets.length >= maxBudgets) return;
+    final (from, to) = _ordered(start, end);
+    _budgets.add(
+      Budget(
+        id: _newId('budget'),
+        label: _cap(label, Budget.maxLabelLength),
+        amount: amount,
+        start: from,
+        end: to,
+        category: category,
+      ),
+    );
+    await _persistBudgets();
+  }
+
+  Future<void> updateBudget(
+    String id, {
+    required String label,
+    required double amount,
+    required DateTime start,
+    required DateTime end,
+    String category = '',
+  }) async {
+    final index = _budgets.indexWhere((budget) => budget.id == id);
+    if (index < 0 || amount <= 0) return;
+    final (from, to) = _ordered(start, end);
+    _budgets[index] = _budgets[index].copyWith(
+      label: _cap(label, Budget.maxLabelLength),
+      amount: amount,
+      start: from,
+      end: to,
+      category: category,
+    );
+    await _persistBudgets();
+  }
+
+  Future<void> removeBudget(String id) async {
+    _budgets.removeWhere((budget) => budget.id == id);
+    await _persistBudgets();
+  }
+
+  Future<void> restoreBudget(Budget budget) async {
+    if (_budgets.any((existing) => existing.id == budget.id)) return;
+    _budgets.add(budget);
+    await _persistBudgets();
+  }
+
+  /// Start never after end, whichever order the dates were picked in.
+  static (DateTime, DateTime) _ordered(DateTime a, DateTime b) {
+    final first = dateOnly(a);
+    final second = dateOnly(b);
+    return first.isAfter(second) ? (second, first) : (first, second);
+  }
+
+  Future<void> _persistBudgets() async {
+    _moneyBook = null;
+    notifyListeners();
+    final local = await _store;
+    await local.saveBudgets(_budgets);
+  }
+
+  Future<void> addLoan({
+    required LoanType type,
+    required String person,
+    required double amount,
+    required DateTime date,
+    String note = '',
+  }) async {
+    if (amount <= 0 || _loans.length >= maxLoans) return;
+    _loans.add(
+      LoanEntry(
+        id: _newId('loan'),
+        type: type,
+        person: _cap(person, LoanEntry.maxNameLength),
+        amount: amount,
+        date: dateOnly(date),
+        note: note.trim(),
+      ),
+    );
+    await _persistLoans();
+  }
+
+  Future<void> updateLoan(
+    String id, {
+    required LoanType type,
+    required String person,
+    required double amount,
+    required DateTime date,
+    String note = '',
+  }) async {
+    final index = _loans.indexWhere((loan) => loan.id == id);
+    if (index < 0 || amount <= 0) return;
+    _loans[index] = _loans[index].copyWith(
+      type: type,
+      person: _cap(person, LoanEntry.maxNameLength),
+      amount: amount,
+      date: dateOnly(date),
+      note: note.trim(),
+    );
+    await _persistLoans();
+  }
+
+  Future<void> toggleLoanSettled(String id) async {
+    final index = _loans.indexWhere((loan) => loan.id == id);
+    if (index < 0) return;
+    final settled = !_loans[index].settled;
+    _loans[index] = _loans[index].copyWith(
+      settled: settled,
+      settledAt: settled ? wallNow() : null,
+      clearSettledAt: !settled,
+    );
+    await _persistLoans();
+  }
+
+  Future<void> removeLoan(String id) async {
+    _loans.removeWhere((loan) => loan.id == id);
+    await _persistLoans();
+  }
+
+  Future<void> restoreLoan(LoanEntry loan) async {
+    if (_loans.any((existing) => existing.id == loan.id)) return;
+    _loans.add(loan);
+    await _persistLoans();
+  }
+
+  Future<void> _persistLoans() async {
+    _moneyBook = null;
+    notifyListeners();
+    final local = await _store;
+    await local.saveLoans(_loans);
+  }
+
+  // Page lock ----------------------------------------------------------------
+  //
+  // A PIN in front of chosen pages. What has been unlocked is remembered for
+  // this session only: leaving the app, or Lock now, closes every page again.
+
+  PageLock pageLock = const PageLock();
+  final Set<String> _unlockedPages = {};
+
+  /// Key for the lock's own controls in Settings, which need the PIN too.
+  static const _lockSettingsKey = '#settings';
+
+  /// Whether [page] is behind the PIN right now.
+  bool isPageLocked(String page) =>
+      pageLock.enabled &&
+      pageLock.pages.contains(page) &&
+      !_unlockedPages.contains(page);
+
+  /// True when a locked page is open, which is when Lock now has work to do.
+  bool get hasUnlockedPages => _unlockedPages.any(pageLock.pages.contains);
+
+  /// Opens [page] if [pin] is right.
+  bool unlockPage(String page, String pin) {
+    if (!pageLock.verify(pin)) return false;
+    _unlockedPages.add(page);
+    notifyListeners();
+    return true;
+  }
+
+  /// Closes every page again, and the lock's settings with them.
+  void lockPages() {
+    if (_unlockedPages.isEmpty) return;
+    _unlockedPages.clear();
+    notifyListeners();
+  }
+
+  /// With no PIN set there is nothing to guard the settings with.
+  bool get lockSettingsOpen =>
+      !pageLock.enabled || _unlockedPages.contains(_lockSettingsKey);
+
+  bool unlockLockSettings(String pin) => unlockPage(_lockSettingsKey, pin);
+
+  /// Sets or changes the PIN. Whoever just chose it has proved they know it,
+  /// so the settings stay open.
+  Future<void> setPin(String pin) async {
+    pageLock = pageLock.withPin(pin);
+    _unlockedPages.add(_lockSettingsKey);
+    notifyListeners();
+    final local = await _store;
+    await local.savePageLock(pageLock);
+  }
+
+  /// Removes the PIN, and with it every page's lock.
+  Future<void> clearPin() async {
+    pageLock = const PageLock();
+    _unlockedPages.clear();
+    notifyListeners();
+    final local = await _store;
+    await local.savePageLock(pageLock);
+  }
+
+  Future<void> setPageLocked(String page, {required bool locked}) async {
+    if (!pageLock.enabled) return;
+    pageLock = pageLock.withPage(page, locked: locked);
+    notifyListeners();
+    final local = await _store;
+    await local.savePageLock(pageLock);
+  }
+
+  /// The highest stage already celebrated, so a new one is celebrated once.
+  int growthStageSeen = 0;
+
+  Future<void> markGrowthSeen(int stage) async {
+    if (stage <= growthStageSeen) return;
+    growthStageSeen = stage;
+    final local = await _store;
+    await local.saveGrowthStageSeen(stage);
+  }
+
   /// How many of the habits due on [day] are done. A habit done on a day off
   /// counts on both sides, so extra credit never reads as a shortfall.
   ({int done, int due}) habitProgressOn(DateTime day) {
     var done = 0;
     var due = 0;
     for (final habit in habits) {
+      // A habit counts only from the day it was created.
+      if (dateOnly(day).isBefore(dateOnly(habit.createdAt))) continue;
       final isDone = habitStats(habit).isDoneOn(day);
       if (!habit.isDueOn(day) && !isDone) continue;
       due++;
@@ -1045,9 +1596,11 @@ class ControlStore extends ChangeNotifier {
     await _persistHabitLog();
   }
 
-  /// Sets the stored amount for [day]. Never below zero.
+  /// Sets the stored amount for [day]. Never below zero, and never for a day
+  /// before the habit was created or after today.
   Future<void> setHabitAmount(String id, DateTime day, int amount) async {
-    if (habitById(id) == null) return;
+    final habit = habitById(id);
+    if (habit == null || !habitStats(habit).canLog(day)) return;
     final log = _habitLog.putIfAbsent(id, () => {});
     if (amount <= 0) {
       log.remove(dayKey(day));

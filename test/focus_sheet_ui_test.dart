@@ -284,6 +284,11 @@ void main() {
     );
     await open(tester, width: 400, scale: 1);
     expect(find.text('10:00'), findsOneWidget);
+    // A pomodoro's face is the wavy ring, filling towards its end.
+    final ring = tester.widget<ExpressiveCircularProgress>(
+      find.byType(ExpressiveCircularProgress),
+    );
+    expect(ring.value, closeTo(0.6, 0.01));
     expect(find.text('left'), findsOneWidget);
     expect(find.text('Pomodoro, 25m'), findsOneWidget);
 
@@ -308,6 +313,8 @@ void main() {
     );
     await open(tester, width: 400, scale: 1);
     expect(find.text('42:07'), findsOneWidget);
+    // No ring for a stopwatch: there is no end for it to fill towards.
+    expect(find.byType(ExpressiveCircularProgress), findsNothing);
     expect(find.text('focused'), findsOneWidget);
 
     await tapVisible(tester, 'Finish');

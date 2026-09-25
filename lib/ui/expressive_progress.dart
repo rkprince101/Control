@@ -281,3 +281,217 @@ class _WavePainter extends CustomPainter {
       trackColor != oldDelegate.trackColor ||
       direction != oldDelegate.direction;
 }
+
+/// The circular sibling of [ExpressiveProgress]: a wavy arc for what is done,
+/// a flat track for what is left, with a gap between them.
+///
+/// The wave travels round the arc at the [WaveMotion] speed, tapers flat as
+/// the arc nears empty or full, and holds still for Off, for reduced motion,
+/// and while the page is out of sight. The value is drawn as given; a caller
+/// that updates it once a second eases it itself.
+class ExpressiveCircularProgress extends StatefulWidget {
+  const ExpressiveCircularProgress({
+    required this.value,
+    this.color,
+    this.trackColor,
+    this.strokeWidth = 12,
+    this.amplitude = 3.5,
+    this.wavelength = 36,
+    this.semanticsLabel,
+    this.animate = true,
+    this.motion,
+    this.child,
+    super.key,
+  });
+
+  final double value;
+  final Color? color;
+  final Color? trackColor;
+  final double strokeWidth;
+  final double amplitude;
+
+  /// Target distance between crests along the arc. Rounded so a whole number
+  /// of waves fits the circle and the wave never kinks where it meets itself.
+  final double wavelength;
+  final String? semanticsLabel;
+  final bool animate;
+
+  /// Overrides the [WaveMotionScope] choice.
+  final WaveMotion? motion;
+
+  /// Drawn in the middle: the clock, usually.
+  final Widget? child;
+
+  @override
+  State<ExpressiveCircularProgress> createState() =>
+      _ExpressiveCircularProgressState();
+}
+
+class _ExpressiveCircularProgressState extends State<ExpressiveCircularProgress>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _wave = AnimationController(vsync: this);
+
+  double get _value {
+    final value = widget.value;
+    return value.isNaN ? 0 : value.clamp(0.0, 1.0);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _configure();
+  }
+
+  @override
+  void didUpdateWidget(ExpressiveCircularProgress oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.value != widget.value ||
+        oldWidget.animate != widget.animate ||
+        oldWidget.motion != widget.motion) {
+      _configure();
+    }
+  }
+
+  void _configure() {
+    final motion = widget.motion ?? WaveMotionScope.of(context);
+    final permitted =
+        widget.animate &&
+        motion != WaveMotion.off &&
+        !MediaQuery.disableAnimationsOf(context);
+    final visible = TickerMode.valuesOf(context).enabled;
+    final value = _value;
+    final period = motion.period;
+    if (permitted && visible && value > 0 && value < 1 && period != null) {
+      if (!_wave.isAnimating || _wave.duration != period) {
+        _wave.repeat(period: period);
+      }
+    } else {
+      _wave.stop();
+      if (!permitted) _wave.value = 0;
+    }
+  }
+
+  @override
+  void dispose() {
+    _wave.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final value = _value;
+    return Semantics(
+      label: widget.semanticsLabel,
+      value: '${(value * 100).round()}%',
+      child: RepaintBoundary(
+        child: AnimatedBuilder(
+          animation: _wave,
+          builder: (context, child) => CustomPaint(
+            painter: _CircularWavePainter(
+              value: value,
+              phase: _wave.value,
+              color: widget.color ?? scheme.primary,
+              trackColor: widget.trackColor ?? scheme.surfaceContainerHighest,
+              strokeWidth: widget.strokeWidth,
+              amplitude: widget.amplitude,
+              wavelength: widget.wavelength,
+            ),
+            child: child,
+          ),
+          child: widget.child,
+        ),
+      ),
+    );
+  }
+}
+
+class _CircularWavePainter extends CustomPainter {
+  const _CircularWavePainter({
+    required this.value,
+    required this.phase,
+    required this.color,
+    required this.trackColor,
+    required this.strokeWidth,
+    required this.amplitude,
+    required this.wavelength,
+  });
+
+  final double value;
+  final double phase;
+  final Color color;
+  final Color trackColor;
+  final double strokeWidth;
+  final double amplitude;
+  final double wavelength;
+
+  static const _start = -math.pi / 2;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final centre = size.center(Offset.zero);
+    final radius =
+        (math.min(size.width, size.height) - strokeWidth) / 2 - amplitude;
+    if (radius <= 0) return;
+
+    final paint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = strokeWidth
+      ..strokeCap = StrokeCap.round;
+    final circle = Rect.fromCircle(center: centre, radius: radius);
+    final sweep = math.pi * 2 * value;
+    // Rounded caps reach half a stroke past each end; the gap is measured
+    // between the caps, as on the linear bar.
+    final gap = (strokeWidth + 4) / radius;
+
+    if (value < 1) {
+      final from = value == 0 ? _start : _start + sweep + gap;
+      final to = _start + math.pi * 2 - (value == 0 ? 0 : gap);
+      if (to > from) {
+        canvas.drawArc(
+          circle,
+          from,
+          to - from,
+          false,
+          paint..color = trackColor,
+        );
+      }
+    }
+    if (value <= 0) return;
+
+    final taper = math.min(1.0, math.min(value, 1 - value) / 0.1);
+    final wave = amplitude * taper;
+    if (wave < 0.05) {
+      canvas.drawArc(circle, _start, sweep, false, paint..color = color);
+      return;
+    }
+
+    // A whole number of crests round the circle.
+    final crests = math.max(1, (math.pi * 2 * radius / wavelength).round());
+    final steps = math.max(24, (sweep * radius / 1.5).ceil());
+    final path = Path();
+    for (var i = 0; i <= steps; i++) {
+      final angle = _start + sweep * i / steps;
+      final r =
+          radius +
+          wave * math.sin(crests * (angle - _start) - phase * math.pi * 2);
+      final point = centre + Offset(math.cos(angle), math.sin(angle)) * r;
+      if (i == 0) {
+        path.moveTo(point.dx, point.dy);
+      } else {
+        path.lineTo(point.dx, point.dy);
+      }
+    }
+    canvas.drawPath(path, paint..color = color);
+  }
+
+  @override
+  bool shouldRepaint(_CircularWavePainter old) =>
+      value != old.value ||
+      phase != old.phase ||
+      color != old.color ||
+      trackColor != old.trackColor ||
+      strokeWidth != old.strokeWidth ||
+      amplitude != old.amplitude ||
+      wavelength != old.wavelength;
+}

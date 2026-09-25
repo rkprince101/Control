@@ -7,8 +7,10 @@ import '../state/control_store.dart';
 import 'control_page.dart';
 import 'controls.dart';
 import 'device_owner_sheet.dart';
+import 'dialogs.dart';
 import 'expressive_progress.dart';
 import 'lock_sheet.dart';
+import 'page_lock.dart';
 import 'theme.dart';
 import 'widgets.dart';
 
@@ -186,6 +188,15 @@ class SettingsPage extends StatelessWidget {
         ),
         const SizedBox(height: 24),
 
+        const SectionLabel('App lock'),
+        const AppLockCard(),
+        const SizedBox(height: 10),
+        const _Note(
+          'Locked pages ask for the PIN each time you come back to Control. '
+          'Settings is never locked, so the PIN can always be changed here.',
+        ),
+        const SizedBox(height: 24),
+
         const SectionLabel('Your weekly rhythm'),
         ControlCard(
           padding: const EdgeInsets.symmetric(horizontal: 18),
@@ -336,10 +347,12 @@ class _MotionCard extends StatelessWidget {
                       'settings, so the wave stays still whatever you pick here.'
                 : switch (store.waveMotion) {
                     WaveMotion.off =>
-                      'The wave holds still. Progress bars change length '
-                          'without easing.',
+                      'The wave holds still, progress bars change length '
+                          'without easing, and the stopwatch dial steps once a '
+                          'second.',
                     WaveMotion.calm =>
-                      'The wave drifts slowly along anything in progress.',
+                      'The wave drifts slowly along anything in progress, '
+                          'bars and timer rings alike.',
                     WaveMotion.lively =>
                       'The wave moves at the Material pace. Livelier, and a '
                           'little more battery.',
@@ -730,31 +743,25 @@ class _HardModeRow extends StatelessWidget {
     final messenger = ScaffoldMessenger.of(context);
 
     if (value) {
-      final confirmed = await showDialog<bool>(
-        context: context,
-        builder: (context) => AlertDialog(
-          backgroundColor: ControlColors.of(context).card,
-          title: const Text('Turn on Hard mode?'),
-          content: const Text(
-            'Control will close Android settings screens that lead to '
+      final confirmed = await confirmAction(
+        context,
+        icon: Icons.gpp_maybe_outlined,
+        tone: DialogTone.caution,
+        title: 'Turn on Hard mode?',
+        message:
+            'Control will close the Android settings screens that lead to '
             'uninstalling or disabling it, including its own accessibility '
-            'setting. Turn it off here first when you genuinely want to remove '
-            'the app.',
-            style: TextStyle(height: 1.35),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('Turn on'),
-            ),
-          ],
+            'setting.',
+        detail: const DialogNote(
+          icon: Icons.info_outline_rounded,
+          text:
+              'When you genuinely want to remove the app, turn it off here '
+              'first.',
+          tone: DialogTone.caution,
         ),
+        confirmLabel: 'Turn on',
       );
-      if (!(confirmed ?? false)) return;
+      if (!confirmed) return;
     }
 
     final applied = await store.setHardMode(value);
