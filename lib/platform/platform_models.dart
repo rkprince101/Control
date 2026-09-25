@@ -272,7 +272,7 @@ class DeviceOwnerStatus {
   /// the honest answer to "will the command work".
   final bool provisioningAllowed;
 
-  /// `com.example.control/.enforcement.ControlDeviceAdminReceiver`
+  /// `com.rkprince.control/.enforcement.ControlDeviceAdminReceiver`
   final String component;
 
   String get command => 'adb shell dpm set-device-owner $component';

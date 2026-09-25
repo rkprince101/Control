@@ -163,6 +163,12 @@ void main() {
     );
     expect(find.byKey(const ValueKey('screen-time-total')), findsNothing);
     await tester.tap(find.text('Open settings'));
+    await tester.pumpAndSettle();
+    // What is read, said first; nothing opens until it is accepted.
+    expect(find.text('Allow usage access'), findsOneWidget);
+    expect(store.settingsOpened, 0);
+    await tester.tap(find.text('Agree'));
+    await tester.pumpAndSettle();
     expect(store.settingsOpened, 1);
   });
 
@@ -612,7 +618,13 @@ void main() {
         await tester.ensureVisible(find.text('Open settings'));
         await tester.pump();
         await tester.tap(find.text('Open settings'));
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(find.text('Agree'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Agree'));
+        await tester.pumpAndSettle();
         expect(store.settingsOpened, 1);
+        expect(tester.takeException(), isNull);
       } else if (state == 'error') {
         await reveal(tester, find.text('Try again'));
         await tester.tap(find.text('Try again'));

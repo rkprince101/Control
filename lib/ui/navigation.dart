@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
 import '../data/habits.dart';
+import '../data/legal.dart';
 import '../data/notes.dart';
 import '../data/todos.dart';
 import '../main.dart';
@@ -12,6 +13,7 @@ import '../state/control_store.dart';
 import 'block_editor_sheet.dart';
 import 'habit_sheets.dart';
 import 'habit_widgets.dart';
+import 'legal_page.dart';
 import 'note_editor.dart';
 import 'todos_page.dart';
 import 'theme.dart';
@@ -423,10 +425,27 @@ class ControlDrawer extends StatelessWidget {
               selected: selected == Destination.settings,
               onTap: () => onSelect(Destination.settings),
             ),
+            DrawerItem(
+              icon: Icons.privacy_tip_outlined,
+              label: 'Privacy policy',
+              onTap: () => _openLegal(context, privacyPolicy),
+            ),
+            DrawerItem(
+              icon: Icons.handshake_outlined,
+              label: 'Terms of use',
+              onTap: () => _openLegal(context, termsOfUse),
+            ),
           ],
         ),
       ),
     );
+  }
+
+  /// Closes the drawer, then reads the document on its own page.
+  static void _openLegal(BuildContext context, LegalDocument document) {
+    final navigator = Navigator.of(context);
+    Scaffold.maybeOf(context)?.closeDrawer();
+    navigator.push(LegalPage.route(document));
   }
 
   /// The number beside a destination, as Gmail puts unread counts beside

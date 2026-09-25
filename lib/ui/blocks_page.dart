@@ -6,6 +6,7 @@ import '../main.dart';
 import '../state/control_store.dart';
 import 'block_editor_sheet.dart';
 import 'control_page.dart';
+import 'disclosures.dart';
 import 'expressive_progress.dart';
 import 'focus_stats_sheet.dart';
 import 'block_icon.dart';
@@ -31,7 +32,7 @@ class BlocksPage extends StatelessWidget {
                 'Blocks are not being enforced. Turn on App blocking to apply '
                 'your rules.',
             actionLabel: 'Fix',
-            onAction: store.openAccessibilitySettings,
+            onAction: () => Disclosures.appBlocking(context),
           ),
           const SizedBox(height: 12),
         ],

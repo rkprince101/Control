@@ -1,14 +1,17 @@
 import 'package:control_core/control_core.dart';
 import 'package:flutter/material.dart';
 
+import '../data/legal.dart';
 import '../main.dart';
 import '../platform/platform_models.dart';
 import '../state/control_store.dart';
 import 'control_page.dart';
+import 'disclosures.dart';
 import 'controls.dart';
 import 'device_owner_sheet.dart';
 import 'dialogs.dart';
 import 'expressive_progress.dart';
+import 'legal_page.dart';
 import 'lock_sheet.dart';
 import 'page_lock.dart';
 import 'theme.dart';
@@ -117,7 +120,7 @@ class SettingsPage extends StatelessWidget {
                 label: 'App blocking',
                 subtitle: 'Enforces your app and website rules',
                 granted: store.accessibilityEnabled,
-                onTap: store.openAccessibilitySettings,
+                onTap: () => Disclosures.appBlocking(context),
               ),
               Divider(height: 1, color: colors.divider),
               _PermissionRow(
@@ -125,7 +128,7 @@ class SettingsPage extends StatelessWidget {
                 label: 'Screen time',
                 subtitle: 'Reads usage totals for insights and app-time rules',
                 granted: store.usageAccessGranted,
-                onTap: store.openUsageAccessSettings,
+                onTap: () => Disclosures.usageAccess(context),
               ),
               Divider(height: 1, color: colors.divider),
               _PermissionRow(
@@ -283,6 +286,34 @@ class SettingsPage extends StatelessWidget {
 
         const SectionLabel('Motion'),
         _MotionCard(store: store),
+        const SizedBox(height: 24),
+
+        const SectionLabel('About'),
+        ControlCard(
+          padding: const EdgeInsets.symmetric(horizontal: 18),
+          child: Column(
+            children: [
+              _Row(
+                icon: Icons.privacy_tip_outlined,
+                label: 'Privacy policy',
+                value: 'Everything stays on your phone',
+                onTap: () => LegalPage.open(context, privacyPolicy),
+              ),
+              Divider(height: 1, color: colors.divider),
+              _Row(
+                icon: Icons.handshake_outlined,
+                label: 'Terms of use',
+                value: 'Free, open source, given as it is',
+                onTap: () => LegalPage.open(context, termsOfUse),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 10),
+        const _Note(
+          'Control is open source under the MIT licence: '
+          'github.com/rkprince101/Control',
+        ),
       ],
     );
   }

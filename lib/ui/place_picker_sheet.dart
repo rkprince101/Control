@@ -143,7 +143,7 @@ class _PlacePickerSheetState extends State<PlacePickerSheet> {
                       urlTemplate:
                           'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                       // The OSM tile policy requires an identifying agent.
-                      userAgentPackageName: 'com.example.control',
+                      userAgentPackageName: 'com.rkprince.control',
                       maxZoom: 19,
                     ),
                     CircleLayer(

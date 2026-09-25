@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="accessibility_summary">Detects which app is in the foreground so blocks can be enforced.</string>
-    <string name="accessibility_description">Control needs this to see which app you just opened, so it can put a block screen in front of it. With Hard mode on it also reads the text of Android settings screens, and only those, to notice an attempt to uninstall Control. It never reads other apps, never records what you type, and nothing leaves your device. Without it, blocks cannot be enforced on Android.</string>
+    <string name="accessibility_description">Control needs this to see which app you just opened, so it can put a block screen in front of the apps you chose to block. For websites you block, it also reads the address bar of supported browsers. With Hard mode on it also reads the text of Android settings screens, and only those, to notice an attempt to uninstall Control. It never reads anything else in other apps, never records what you type, and nothing leaves your device. Without it, blocks cannot be enforced on Android.</string>
 
     <string name="block_fallback_title">Blocked</string>
     <string name="block_default_reason">This app is blocked right now.</string>

@@ -8,6 +8,7 @@ import '../state/control_store.dart';
 import 'app_icons.dart';
 import 'block_editor_sheet.dart';
 import 'control_page.dart';
+import 'disclosures.dart';
 import 'controls.dart';
 import 'expressive_progress.dart';
 import 'sheet.dart';
@@ -34,7 +35,7 @@ class InsightsPage extends StatelessWidget {
                 'Allow usage access to see your recorded activity. '
                 'Control processes your app usage on this device, not on a server.',
             actionLabel: 'Open settings',
-            onPressed: store.openUsageAccessSettings,
+            onPressed: () => Disclosures.usageAccess(context),
           ),
         ],
       );

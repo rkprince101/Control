@@ -1,0 +1,6 @@
+# Copy to android/key.properties (never commit it) and fill in.
+# storeFile is relative to the android/ folder. See README > Releasing.
+storeFile=control-release.jks
+storePassword=
+keyAlias=control
+keyPassword=

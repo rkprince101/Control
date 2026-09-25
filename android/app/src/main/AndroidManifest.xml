@@ -102,7 +102,7 @@
             android:name=".shortcuts.ShortcutReceiver"
             android:exported="true">
             <intent-filter>
-                <action android:name="com.example.control.action.SHORTCUT" />
+                <action android:name="com.rkprince.control.action.SHORTCUT" />
             </intent-filter>
         </receiver>
 

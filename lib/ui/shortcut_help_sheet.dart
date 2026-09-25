@@ -91,7 +91,7 @@ class ShortcutHelpSheet extends StatelessWidget {
                       'a smart scale syncing, arriving at the library. Add a '
                       '"Send broadcast" action with this action name and a '
                       'string extra called channel.',
-                  code: 'com.example.control.action.SHORTCUT\n'
+                  code: 'com.rkprince.control.action.SHORTCUT\n'
                       'extra: channel = $channel',
                 ),
                 _Section(
@@ -100,7 +100,7 @@ class ShortcutHelpSheet extends StatelessWidget {
                   body: 'Useful while you are setting this up, before the tag '
                       'arrives.',
                   code: 'adb shell am broadcast '
-                      '-a com.example.control.action.SHORTCUT '
+                      '-a com.rkprince.control.action.SHORTCUT '
                       '--es channel $channel',
                 ),
                 const SizedBox(height: 8),

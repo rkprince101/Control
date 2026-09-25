@@ -1,24 +1,98 @@
 # Control
 
-**Habit-gated app blocking for Android, Windows, and beyond.**
+**Take your time back from your phone.**
 
-Open an app you have put behind a rule and you get a block screen instead, until
-the rule says otherwise: a schedule ends, you walk far enough, you finish the
-habit you promised yourself.
+For anyone who picks up their phone for one thing and looks up an hour later.
+Control puts a block screen in front of the apps and websites that pull you
+in, and keeps it there until you have done what you promised yourself: a
+focus session, a walk, a habit, or simply the end of a schedule. Around it are
+the things that help the time you get back go somewhere: habits, todos, notes
+and a money log.
 
-Built with Flutter and a pure-Dart rule engine. Android also evaluates persisted
-rules natively so schedules and allowance expiry work without Flutter running.
+Free and open source. No account, no ads, no tracking: everything stays on
+your phone.
 
+[![Download](https://img.shields.io/github/v/release/rkprince101/Control?label=Download%20APK&logo=android&logoColor=white&color=3DDC84)](https://github.com/rkprince101/Control/releases/latest)
 ![Platform](https://img.shields.io/badge/platform-Android%207.0%2B-3DDC84?logo=android&logoColor=white)
 ![Flutter](https://img.shields.io/badge/Flutter-3.44-02569B?logo=flutter&logoColor=white)
 ![Dart](https://img.shields.io/badge/Dart-3.12-0175C2?logo=dart&logoColor=white)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
+<p align="center">
+  <img src="docs/screenshots/01_blocks.png" width="23%" alt="Blocks">
+  <img src="docs/screenshots/02_habits.png" width="23%" alt="Habits">
+  <img src="docs/screenshots/06_money.png" width="23%" alt="Money">
+  <img src="docs/screenshots/10_dark.png" width="23%" alt="Habits in the dark theme">
+</p>
+
+---
+
+## Download
+
+Get the latest APK from **[Releases](https://github.com/rkprince101/Control/releases/latest)**.
+Control is not on Google Play: it is published here only.
+
+| File | For |
+| --- | --- |
+| `Control-<version>.apk` | Any phone. The one to pick if unsure. |
+| `Control-<version>-arm64-v8a.apk` | Almost every phone from the last several years. Smaller. |
+| `Control-<version>-armeabi-v7a.apk` | Older 32-bit phones. |
+| `Control-<version>-x86_64.apk` | Emulators and Chromebooks. |
+
+### Installing
+
+1. Download the APK on your phone and open it. Android asks to allow
+   installing apps from your browser or file manager: allow it for that app.
+2. Google Play Protect may say the app is from an unknown developer. Tap
+   **More details**, then **Install anyway**. It says that about every app
+   that is not from the Play Store; the code is all here to read.
+3. Open Control and go to **Settings > Access & permissions > App blocking**.
+   Control says what it reads before sending you to Android's Accessibility
+   screen. On **Android 13 and later** Android may answer *Restricted
+   setting*: open **Settings > Apps > Control**, tap **⋮**, choose **Allow
+   restricted settings**, and turn App blocking on again. Every app installed
+   from outside an app store has to do this once.
+4. Allow **Usage access** for Insights and app-time rules. Everything else is
+   asked for when a feature needs it.
+
+### Updating
+
+Download the newer APK and install it over the old one; your data stays.
+Releases are always signed with the same key. A copy signed with a different
+key, such as one you built yourself, has to be uninstalled first, and
+uninstalling deletes your data.
+
+To be told about updates, add `https://github.com/rkprince101/Control` to
+[Obtainium](https://github.com/ImranR98/Obtainium), or watch the repository's
+releases.
+
+### Checking a download
+
+Every release has a `SHA256SUMS.txt`. In the folder you downloaded to:
+
+```bash
+sha256sum -c SHA256SUMS.txt --ignore-missing
+```
+
+---
+
+## Screenshots
+
+| | | |
+| :---: | :---: | :---: |
+| <img src="docs/screenshots/01_blocks.png" width="250" alt="Blocks"><br>Blocks and focus | <img src="docs/screenshots/02_habits.png" width="250" alt="Habits"><br>Habits and your garden | <img src="docs/screenshots/03_habit_detail.png" width="250" alt="Habit detail"><br>Streaks and weekly progress |
+| <img src="docs/screenshots/04_todos.png" width="250" alt="Todos"><br>Todos by day | <img src="docs/screenshots/05_notes.png" width="250" alt="Notes"><br>Notes | <img src="docs/screenshots/06_money.png" width="250" alt="Money"><br>Money, month by month |
+| <img src="docs/screenshots/07_money_stats.png" width="250" alt="Money stats"><br>Where the money went | <img src="docs/screenshots/08_insights.png" width="250" alt="Insights"><br>Screen time insights | <img src="docs/screenshots/09_drawer.png" width="250" alt="Navigation drawer"><br>Everything a tap away |
+| <img src="docs/screenshots/10_dark.png" width="250" alt="Dark theme"><br>Black and pitch-black themes | <img src="docs/screenshots/11_privacy.png" width="250" alt="Privacy policy"><br>Privacy policy in the app | |
+
 ---
 
 ## Contents
 
+- [Download](#download)
+- [Screenshots](#screenshots)
 - [Features](#features)
+- [Privacy and terms](#privacy-and-terms)
 - [Requirements](#requirements)
 - [Getting started](#getting-started)
 - [Setting up on the device](#setting-up-on-the-device)
@@ -35,8 +109,8 @@ rules natively so schedules and allowance expiry work without Flutter running.
 - [Design](#design)
 - [Supported versions](#supported-versions)
 - [Development](#development)
+- [Releasing](#releasing)
 - [Roadmap](#roadmap)
-- [Known decision to make](#known-decision-to-make)
 - [Contributing](#contributing)
 - [License](#license)
 
@@ -172,6 +246,10 @@ Implemented on Android; not yet tested on a physical device:
   its rules out of the drawer's list. Pages lock again whenever you leave the
   app, or at once from the lock in the search bar. Only a salted SHA-256 of
   the PIN is stored: privacy from whoever picks the phone up, not a vault.
+- **Privacy policy and terms of use** inside the app, in the navigation
+  drawer and under Settings > About, and as [PRIVACY.md](PRIVACY.md) and
+  [TERMS.md](TERMS.md) here. Before sending you to switch on App blocking or
+  Usage access, Control says what each one reads and waits for you to agree.
 - **Navigation** laid out like Gmail: a floating search bar (menu, search
   across rules, habits and pages, and a status avatar that opens Settings), a
   modal drawer listing pages with live counts and every rule as a label, and a
@@ -180,6 +258,16 @@ Implemented on Android; not yet tested on a physical device:
 - Blocks, locks, grants, and the unlock budget persist across restarts, in a
   single atomically written `control_state.json` under the app support
   directory.
+
+---
+
+## Privacy and terms
+
+Control has no accounts, no ads, no analytics and no servers. What it reads
+through Accessibility, usage access, steps and location is used on the phone
+and stays there; the only network traffic is OpenStreetMap tiles when you
+pick a place on a map. The full [privacy policy](PRIVACY.md) and
+[terms of use](TERMS.md) are also in the app, in the navigation drawer.
 
 ---
 
@@ -235,16 +323,9 @@ with:
 adb install build/app/outputs/flutter-apk/app-release.apk
 ```
 
-Or build an App Bundle for Play:
-
-```bash
-flutter build appbundle --release
-```
-
-> Before any build reaches a real device, change `applicationId` in
-> [`android/app/build.gradle.kts`](android/app/build.gradle.kts). See
-> [Known decision to make](#known-decision-to-make) for why this is awkward to
-> do later.
+Without `android/key.properties` a release build is signed with your debug
+key: fine for your own phone, but it cannot update a copy from Releases. See
+[Releasing](#releasing) for signed builds.
 
 ---
 
@@ -263,6 +344,11 @@ Control needs several system-level grants. The app walks through each one in
 | **Device admin** | Settings, Uninstall protection | Adds a confirmation step before uninstall. Weak on its own; see below. |
 | **Device owner** (optional) | Settings, Uninstall-proof setup | Stronger OS-level uninstall and configuration restrictions, not protection against every privileged bypass. |
 
+On Android 13 and later, an app installed from outside an app store has to be
+allowed *restricted settings* before its accessibility service can be turned
+on: **Settings > Apps > Control > ⋮ > Allow restricted settings**. See
+[Installing](#installing).
+
 ### Device owner provisioning
 
 Device owner is the strongest tier, but not bypass-proof. It is optional and
@@ -275,14 +361,14 @@ whether the command will be accepted before you go near a reset.
 Once the device is account-free, with USB or wireless debugging on:
 
 ```bash
-adb shell dpm set-device-owner com.example.control/.enforcement.ControlDeviceAdminReceiver
+adb shell dpm set-device-owner com.rkprince.control/.enforcement.ControlDeviceAdminReceiver
 ```
 
 The app shows the exact component string for your build under
 **Settings, Uninstall-proof setup**. To release device owner later:
 
 ```bash
-adb shell dpm remove-active-admin com.example.control/.enforcement.ControlDeviceAdminReceiver
+adb shell dpm remove-active-admin com.rkprince.control/.enforcement.ControlDeviceAdminReceiver
 ```
 
 Command-based removal depends on Android's admin-removal policy and build;
@@ -313,7 +399,7 @@ control/
 │   ├── lib/src/models.dart       Blocks, conditions, schedules, grants
 │   └── test/                     Engine and lock tests
 │
-├── android/app/src/main/kotlin/com/example/control/
+├── android/app/src/main/kotlin/com/rkprince/control/
 │   ├── MainActivity.kt
 │   ├── bridge/ControlBridge.kt   MethodChannel handler
 │   ├── enforcement/              Accessibility service, block overlay, plan cache,
@@ -324,6 +410,10 @@ control/
 │
 ├── android/app/src/test/kotlin/  JVM tests: TamperRules, WebRules, UsageMath, PlanCodec, HabitReminders
 ├── test/                         Flutter tests: codec, editor, focus, habits, persistence, goldens
+│   └── screenshots_test.dart     Makes the README screenshots (off unless SCREENSHOTS=1)
+├── docs/screenshots/             The README screenshots
+├── .github/workflows/release.yml Signed APKs and a draft release for each version tag
+├── PRIVACY.md, TERMS.md          Privacy policy and terms of use (also in the app)
 ├── assets/icons/                 Bundled block icons
 ├── ios/ macos/ linux/ windows/ web/   Platform scaffolds (no enforcement yet)
 └── pubspec.yaml
@@ -357,7 +447,7 @@ evaluator handles persisted enforcement rules while Flutter is absent.
 ### The plan cache
 
 Flutter publishes evaluated plans plus persistent rules to
-[`PlanStore`](android/app/src/main/kotlin/com/example/control/enforcement/PlanStore.kt),
+[`PlanStore`](android/app/src/main/kotlin/com/rkprince/control/enforcement/PlanStore.kt),
 which the accessibility service reads without waking Flutter. Native rules
 evaluate recurring schedules, including `allowDuring` and overnight windows,
 and `allowedUntil` expiry. Category membership and per-rule exclusions resolve
@@ -433,7 +523,7 @@ missing accessibility content, service shutdown and timing can defeat detection.
 Device owner is stronger, not root-proof, and neither tier guarantees uninstall
 prevention. Essential system and current phone safety flows must remain usable.
 
-**Hard mode** ([`TamperRules`](android/app/src/main/kotlin/com/example/control/enforcement/TamperRules.kt))
+**Hard mode** ([`TamperRules`](android/app/src/main/kotlin/com/rkprince/control/enforcement/TamperRules.kt))
 watches the settings, installer, store, and OEM-manager packages. Three gates,
 in order: the class name has to be a screen that can remove or disable an app;
 the app name has to appear as a whole word; and a destructive verb has to be on
@@ -445,7 +535,7 @@ All three gates exist because of one bug. The first version tested only for the
 app name and a keyword, which closed the Settings home page: the app is called
 "Control", that is a substring of "Device controls", and "Accessibility" is an
 ordinary menu entry. The rules now live in a pure object with
-[JVM tests](android/app/src/test/kotlin/com/example/control/enforcement/TamperRulesTest.kt)
+[JVM tests](android/app/src/test/kotlin/com/rkprince/control/enforcement/TamperRulesTest.kt)
 pinning both what must be closed and what must be left alone.
 
 **Device owner** provisioning has a guided flow in Settings, "Uninstall-proof
@@ -466,7 +556,7 @@ legitimate emergency and release paths are not removed.
 ### Counting screen time
 
 Exactly one app is in the foreground at a time, and
-[`UsageMath`](android/app/src/main/kotlin/com/example/control/insights/UsageMath.kt)
+[`UsageMath`](android/app/src/main/kotlin/com/rkprince/control/insights/UsageMath.kt)
 models it that way: a resume closes whatever was open before it, and the screen
 going off closes it too.
 
@@ -476,13 +566,13 @@ where a pause was expected, a dropped event — and every package left open then
 gets credited to the end of the window. That showed up as several apps each
 reporting the same two hours the user had actually spent in one of them.
 
-[`UsageTimeline`](android/app/src/main/kotlin/com/example/control/insights/UsageTimeline.kt)
+[`UsageTimeline`](android/app/src/main/kotlin/com/rkprince/control/insights/UsageTimeline.kt)
 splits those foreground intervals into hourly Day buckets or local-calendar day
 buckets for the trailing 7/30-day ranges, clipped to now. Calendar boundaries
 respect DST, including 23/25-hour days and repeated hours; days are not assumed
 to be fixed 24-hour durations. Accounting is covered by
-[`UsageMathTest`](android/app/src/test/kotlin/com/example/control/insights/UsageMathTest.kt)
-and [`UsageTimelineTest`](android/app/src/test/kotlin/com/example/control/insights/UsageTimelineTest.kt).
+[`UsageMathTest`](android/app/src/test/kotlin/com/rkprince/control/insights/UsageMathTest.kt)
+and [`UsageTimelineTest`](android/app/src/test/kotlin/com/rkprince/control/insights/UsageTimelineTest.kt).
 
 Screen-time totals, app rankings, and chart durations use the current installed,
 launchable-app filter plus Control itself, not a historical inventory of apps.
@@ -536,7 +626,7 @@ recurring schedules. Device-owner date/time configuration restrictions on API
 The home-screen widget, the Quick Settings tile and the weekly notification all
 wake without a Flutter isolate, so none of them can run the rule engine. Dart
 writes a flattened `Summary` whenever it recomputes, and they read it from
-[`SummaryStore`](android/app/src/main/kotlin/com/example/control/surface/SummaryStore.kt).
+[`SummaryStore`](android/app/src/main/kotlin/com/rkprince/control/surface/SummaryStore.kt).
 The strings are formatted in Dart rather than Kotlin: the formatting rules live
 there, and a second copy is how two screens end up disagreeing about the same
 number.
@@ -546,7 +636,7 @@ a bypass sitting in the notification shade, reachable from the lock screen,
 which is the opposite of the point.
 
 Habit reminders work the same way. Dart hands every reminder to
-[`HabitReminders`](android/app/src/main/kotlin/com/example/control/surface/HabitReminders.kt)
+[`HabitReminders`](android/app/src/main/kotlin/com/rkprince/control/surface/HabitReminders.kt)
 with its wording already written and the last day its habit was finished. Each
 alarm covers only its next due day and re-arms itself when it fires.
 
@@ -563,10 +653,10 @@ the state is checked rather than assumed:
   the running timer each say so when they cannot reach the user.
 - **Exact timing.** Optional. With *Exact timing* allowed (Android 12+),
   reminders and the timer's end fire on the minute; without it they use a
-  short window. [`NotificationAccess`](android/app/src/main/kotlin/com/example/control/surface/NotificationAccess.kt)
+  short window. [`NotificationAccess`](android/app/src/main/kotlin/com/rkprince/control/surface/NotificationAccess.kt)
   is the one place alarms are set.
 - **Foreground service.** While a focus session or break counts,
-  [`FocusTimerService`](android/app/src/main/kotlin/com/example/control/surface/FocusTimer.kt)
+  [`FocusTimerService`](android/app/src/main/kotlin/com/rkprince/control/surface/FocusTimer.kt)
   (type `specialUse`) holds the ongoing notification, whose chronometer Android
   runs itself. The end is announced by the service on the minute and by a
   backup alarm if the process is gone; whichever fires first wins. The
@@ -720,6 +810,15 @@ Format:
 dart format lib packages test
 ```
 
+Refresh the README screenshots in `docs/screenshots/`, drawn from the same
+fixtures as the previews:
+
+```bash
+SCREENSHOTS=1 flutter test test/screenshots_test.dart
+```
+
+In PowerShell: `$env:SCREENSHOTS=1; flutter test test/screenshots_test.dart`.
+
 ### Manual device checks
 
 No physical-device testing has been performed yet. On a test device, verify:
@@ -768,6 +867,10 @@ No physical-device testing has been performed yet. On a test device, verify:
 | Habit streaks, ranks, persistence | `lib/data/habits.dart`, `test/habits_test.dart` |
 | Todo sections, overdue and steps | `lib/data/todos.dart`, `test/todos_notes_test.dart` |
 | Note editor (flutter_quill) | `lib/ui/note_editor.dart` |
+| Privacy policy and terms | `lib/data/legal.dart` (in the app) and `PRIVACY.md`, `TERMS.md` (here); keep them in step |
+| What the permission dialogs say | `lib/ui/disclosures.dart` |
+| README screenshots | `test/screenshots_test.dart`, `test/support/preview_store.dart` |
+| Release builds and signing | `.github/workflows/release.yml`, `android/app/build.gradle.kts` |
 | Money totals, budgets, loans, currencies | `lib/data/money.dart`, `test/money_test.dart` |
 | Which pages the PIN can lock | `lockableDestinations` in `lib/ui/page_lock.dart` |
 | Habit reminders | `android/.../surface/HabitReminders.kt` and `HabitRemindersTest.kt` |
@@ -798,14 +901,71 @@ Not built yet, in rough priority order:
 
 ---
 
-## Known decision to make
+## Releasing
 
-`applicationId` is still `com.example.control`. It has to change before any
-build reaches a real device, and it is awkward to change later: the accessibility
-service is identified by component name, so a rename looks like a new service to
-Android and the user has to grant it again. Device owner is bound to the
-component too, so a rename after provisioning means a factory reset to
-re-provision.
+Releases are built and signed by GitHub Actions
+([`.github/workflows/release.yml`](.github/workflows/release.yml)) whenever a
+version tag is pushed. The application id is `com.rkprince.control`, and it
+never changes: Android ties the accessibility grant and device owner to it.
+
+### Once: the signing key
+
+Every release must be signed with the same key, or phones refuse to update.
+Make it once and **keep a backup somewhere safe**: lose it, or its
+passwords, and nobody with the app installed can ever update it again.
+
+```bash
+keytool -genkeypair -v -keystore android/control-release.jks \
+  -keyalg RSA -keysize 4096 -validity 10000 -alias control
+```
+
+`keytool` comes with the JDK. Then copy
+[`android/key.properties.example`](android/key.properties.example) to
+`android/key.properties` and fill in the passwords. Both files are
+git-ignored; never commit them.
+
+For GitHub Actions, add four secrets under **Settings > Secrets and variables
+> Actions** in the repository:
+
+| Secret | Value |
+| --- | --- |
+| `KEYSTORE_BASE64` | The keystore, base64-encoded (below) |
+| `KEYSTORE_PASSWORD` | The keystore password |
+| `KEY_ALIAS` | `control` |
+| `KEY_PASSWORD` | The key password |
+
+```bash
+base64 -w 0 android/control-release.jks            # Linux, Git Bash
+```
+
+```powershell
+[Convert]::ToBase64String([IO.File]::ReadAllBytes("android\control-release.jks"))
+```
+
+### Each release
+
+1. Raise `version:` in [`pubspec.yaml`](pubspec.yaml): the part before `+`
+   is what people see, the number after it must go up every time
+   (`1.0.0+1`, then `1.0.1+2`, ...).
+2. Refresh the screenshots if the UI changed (see [Development](#development)).
+3. Commit, then tag and push:
+
+   ```bash
+   git tag v1.0.1
+   git push origin main v1.0.1
+   ```
+
+4. The workflow checks the tag matches `pubspec.yaml`, runs the analyzer and
+   tests, builds the universal and per-ABI APKs, and drafts a release with
+   them and their `SHA256SUMS.txt`. Open **Releases**, write what changed, and
+   publish.
+
+To build signed APKs locally instead, with `android/key.properties` in place:
+
+```bash
+flutter build apk --release
+flutter build apk --release --split-per-abi
+```
 
 ---
 
