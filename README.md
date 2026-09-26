@@ -41,19 +41,51 @@ Control is not on Google Play: it is published here only.
 
 ### Installing
 
-1. Download the APK on your phone and open it. Android asks to allow
+**Easiest: with [Obtainium](https://github.com/ImranR98/Obtainium).** Add
+`https://github.com/rkprince101/Control` in Obtainium and install from there.
+You are told about every update, and because Obtainium installs the way an app
+store does, Android usually skips the *restricted settings* step below.
+
+**Or download the APK yourself:**
+
+1. **Pause Google Play Protect while you install.** Play Protect often blocks
+   apps that are not from the Play Store, especially ones that use the
+   Accessibility service, as blocking apps must. Open the **Play Store**, tap
+   your profile picture, then **Play Protect > ⚙ Settings**, and turn off
+   **Scan apps with Play Protect**. If Play Protect only warns you instead,
+   **More details > Install anyway** works too.
+2. Download the APK on your phone and open it. Android asks to allow
    installing apps from your browser or file manager: allow it for that app.
-2. Google Play Protect may say the app is from an unknown developer. Tap
-   **More details**, then **Install anyway**. It says that about every app
-   that is not from the Play Store; the code is all here to read.
-3. Open Control and go to **Settings > Access & permissions > App blocking**.
-   Control says what it reads before sending you to Android's Accessibility
-   screen. On **Android 13 and later** Android may answer *Restricted
-   setting*: open **Settings > Apps > Control**, tap **⋮**, choose **Allow
-   restricted settings**, and turn App blocking on again. Every app installed
-   from outside an app store has to do this once.
-4. Allow **Usage access** for Insights and app-time rules. Everything else is
-   asked for when a feature needs it.
+3. **Turn Play Protect back on** once Control is installed. It keeps checking
+   your other apps; Control's code is all here to read.
+
+### First run: App blocking and Usage access
+
+Open Control and go to **Settings > Access & permissions**. Turn on **App
+blocking** (it puts the block screen over apps and websites) and **Usage
+access** (screen time, and rules that allow an app a set amount of time).
+Control says what each one reads before sending you to Android's screen.
+
+On **Android 13 and later**, an app installed from a downloaded file has these
+two switches greyed out: *Controlled by restricted setting*. Control notices
+how it was installed and walks you through lifting it, once:
+
+1. In **Accessibility** (or **Usage access**), open Control and tap its
+   greyed-out switch. Android says *Restricted setting*: tap **OK**. This is
+   what makes the next option appear.
+2. Open **Settings > Apps > Control**, tap the **⋮** menu in the top corner,
+   choose **Allow restricted settings**, and confirm with your PIN or
+   fingerprint.
+3. Go back and switch Control on in Accessibility and Usage access.
+
+With a computer and `adb`, step 2 is one command:
+
+```bash
+adb shell appops set com.rkprince.control ACCESS_RESTRICTED_SETTINGS allow
+```
+
+Everything else Control needs, such as notifications, steps or location, is
+asked for when a feature needs it.
 
 ### Updating
 
@@ -74,6 +106,15 @@ Every release has a `SHA256SUMS.txt`. In the folder you downloaded to:
 sha256sum -c SHA256SUMS.txt --ignore-missing
 ```
 
+Every official APK is signed by this certificate (SHA-256):
+
+```
+42:6D:13:9C:D0:0D:44:F3:92:70:1D:22:39:FA:46:74:84:B2:43:D1:54:14:77:79:37:2C:5F:8A:04:2D:19:BD
+```
+
+Obtainium and AppVerifier can check it for you, or with the Android SDK:
+`apksigner verify --print-certs Control-<version>.apk`.
+
 ---
 
 ## Screenshots
@@ -90,6 +131,8 @@ sha256sum -c SHA256SUMS.txt --ignore-missing
 ## Contents
 
 - [Download](#download)
+  - [Installing](#installing)
+  - [First run: App blocking and Usage access](#first-run-app-blocking-and-usage-access)
 - [Screenshots](#screenshots)
 - [Features](#features)
 - [Privacy and terms](#privacy-and-terms)
@@ -263,6 +306,10 @@ Implemented on Android; not yet tested on a physical device:
   drawer and under Settings > About, and as [PRIVACY.md](PRIVACY.md) and
   [TERMS.md](TERMS.md) here. Before sending you to switch on App blocking or
   Usage access, Control says what each one reads and waits for you to agree.
+  When Android is going to grey those switches out (Android 13+ on an install
+  from a downloaded file), it shows the steps to allow restricted settings,
+  with a button for each screen, and brings them back if you return with the
+  switch still off.
 - **Navigation** laid out like Gmail: a floating search bar (menu, search
   across rules, habits and pages, and a status avatar that opens Settings), a
   modal drawer listing pages with live counts, and a
@@ -382,8 +429,9 @@ Control needs several system-level grants. The app walks through each one in
 
 On Android 13 and later, an app installed from outside an app store has to be
 allowed *restricted settings* before its accessibility service can be turned
-on: **Settings > Apps > Control > ⋮ > Allow restricted settings**. See
-[Installing](#installing).
+on: **Settings > Apps > Control > ⋮ > Allow restricted settings**. Control
+detects such an install and shows the steps; see
+[First run](#first-run-app-blocking-and-usage-access).
 
 ### Device owner provisioning
 
@@ -906,6 +954,7 @@ No physical-device testing has been performed yet. On a test device, verify:
 | About page (version, developer, GitHub) | `lib/ui/about_page.dart` |
 | Privacy policy and terms | `lib/data/legal.dart` (in the app) and `PRIVACY.md`, `TERMS.md` (here); keep them in step |
 | What the permission dialogs say | `lib/ui/disclosures.dart` |
+| Restricted-settings steps for downloaded installs | `lib/ui/restricted_settings.dart`, `installInfo` in `ControlBridge.kt` |
 | README screenshots | `test/screenshots_test.dart`, `test/support/preview_store.dart` |
 | Release builds and signing | `.github/workflows/release.yml`, `android/app/build.gradle.kts` |
 | Money totals, budgets, loans, currencies | `lib/data/money.dart`, `test/money_test.dart` |

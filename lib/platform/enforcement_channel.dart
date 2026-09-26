@@ -263,6 +263,14 @@ class EnforcementChannel {
   Future<void> openExactAlarmSettings() =>
       _channel.invokeMethod<void>('openExactAlarmSettings');
 
+  Future<InstallInfo> installInfo() async {
+    final raw = await _channel.invokeMapMethod<Object?, Object?>('installInfo');
+    return raw == null ? const InstallInfo.unknown() : InstallInfo.fromMap(raw);
+  }
+
+  /// Control's own App info page, where "Allow restricted settings" lives.
+  Future<void> openAppInfo() => _channel.invokeMethod<void>('openAppInfo');
+
   /// Replaces every scheduled habit reminder.
   ///
   /// Each entry carries its own wording and the day its habit was last

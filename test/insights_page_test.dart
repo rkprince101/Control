@@ -31,7 +31,7 @@ class _InsightsStore extends ControlStore {
   }
 
   @override
-  Future<void> openUsageAccessSettings() async {
+  Future<void> openUsageAccessSettings({bool watch = true}) async {
     settingsOpened++;
   }
 

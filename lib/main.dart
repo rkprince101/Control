@@ -16,6 +16,7 @@ import 'ui/navigation.dart';
 import 'ui/note_editor.dart';
 import 'ui/notes_page.dart';
 import 'ui/page_lock.dart';
+import 'ui/restricted_settings.dart';
 import 'ui/settings_page.dart';
 import 'ui/theme.dart';
 import 'ui/todos_page.dart';
@@ -148,8 +149,20 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   /// phone up next meets the PIN.
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) StoreScope.of(context).refreshAll();
+    if (state == AppLifecycleState.resumed) _onResume();
     if (state == AppLifecycleState.paused) StoreScope.read(context).lockPages();
+  }
+
+  /// Back from Settings with the switch the user went to turn on still off:
+  /// on Android 13 and later, restricted settings are the likely reason, so
+  /// the steps to lift them come up once.
+  Future<void> _onResume() async {
+    final store = StoreScope.read(context);
+    await store.refreshAll();
+    if (!mounted) return;
+    final missed = store.takeMissedAccess();
+    if (missed == null || RestrictedSettingsGuide.showing) return;
+    await RestrictedSettingsGuide.show(context, missed);
   }
 
   void _select(Destination destination) {

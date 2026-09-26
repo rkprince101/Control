@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../main.dart';
+import '../platform/platform_models.dart';
 import 'dialogs.dart';
+import 'restricted_settings.dart';
 
 /// What Control reads, and why, said before the system screens that grant it.
 ///
@@ -9,7 +11,6 @@ import 'dialogs.dart';
 /// one reads, and agrees, before being sent to switch it on.
 abstract final class Disclosures {
   static Future<void> appBlocking(BuildContext context) async {
-    final store = StoreScope.read(context);
     final agreed = await confirmAction(
       context,
       icon: Icons.accessibility_new_rounded,
@@ -35,26 +36,17 @@ abstract final class Disclosures {
                 'With Hard mode on, it also reads the text of Android '
                 'settings screens to notice an attempt to uninstall Control.',
           ),
-          // Android 13 and later hold back accessibility for apps installed
-          // from outside an app store, which is every install of Control.
-          const SizedBox(height: 8),
-          const DialogNote(
-            icon: Icons.help_outline_rounded,
-            text:
-                'If Android says the setting is restricted, open App info for '
-                'Control, tap ⋮, choose Allow restricted settings, then try '
-                'again.',
-          ),
         ],
       ),
       cancelLabel: 'Not now',
       confirmLabel: 'Agree',
     );
-    if (agreed) await store.openAccessibilitySettings();
+    if (agreed && context.mounted) {
+      await _open(context, SpecialAccess.appBlocking);
+    }
   }
 
   static Future<void> usageAccess(BuildContext context) async {
-    final store = StoreScope.read(context);
     final agreed = await confirmAction(
       context,
       icon: Icons.hourglass_empty_rounded,
@@ -70,6 +62,18 @@ abstract final class Disclosures {
       cancelLabel: 'Not now',
       confirmLabel: 'Agree',
     );
-    if (agreed) await store.openUsageAccessSettings();
+    if (agreed && context.mounted) {
+      await _open(context, SpecialAccess.usageAccess);
+    }
+  }
+
+  /// Straight to the switch, or first through the restricted-settings steps
+  /// when Android is going to grey it out.
+  static Future<void> _open(BuildContext context, SpecialAccess access) {
+    final store = StoreScope.read(context);
+    if (store.installInfo.restrictedSettingsLikely) {
+      return RestrictedSettingsGuide.show(context, access);
+    }
+    return store.openSpecialAccess(access);
   }
 }

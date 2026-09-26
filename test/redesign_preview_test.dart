@@ -2,8 +2,10 @@ import 'package:control/data/focus.dart';
 import 'package:control/data/habits.dart';
 import 'package:control/data/page_lock.dart';
 import 'package:control/main.dart';
+import 'package:control/platform/platform_models.dart';
 import 'package:control/ui/about_page.dart';
 import 'package:control/ui/blocks_page.dart';
+import 'package:control/ui/disclosures.dart';
 import 'package:control/ui/dialogs.dart';
 import 'package:control/ui/expressive_progress.dart';
 import 'package:control/ui/focus_stats_sheet.dart';
@@ -20,6 +22,7 @@ import 'package:control/ui/money_charts.dart';
 import 'package:control/ui/month_date_strip.dart';
 import 'package:control/ui/note_editor.dart';
 import 'package:control/ui/page_lock.dart';
+import 'package:control/ui/restricted_settings.dart';
 import 'package:control/ui/todos_page.dart';
 import 'package:control/ui/settings_page.dart';
 import 'package:control/ui/theme.dart';
@@ -1251,5 +1254,32 @@ void main() {
     await tester.tap(find.text('GitHub profile'));
     await tester.pumpAndSettle();
     expect(opened, ['https://github.com/rkprince101']);
+  });
+
+  testWidgets('A downloaded install walks through restricted settings', (
+    tester,
+  ) async {
+    store.accessibilityEnabled = false;
+    store.installInfo = const InstallInfo(source: 'downloadedFile', sdk: 35);
+    await host(tester);
+    Disclosures.appBlocking(tester.element(find.byType(BlocksPage)));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Agree'));
+    await tester.pumpAndSettle();
+    expect(find.byType(RestrictedSettingsGuide), findsOneWidget);
+    expect(find.text('Allow App blocking'), findsOneWidget);
+    expect(find.text('Open App info'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await expectLater(
+      find.byKey(screenshot),
+      matchesGoldenFile('goldens/restricted_settings_light.png'),
+    );
+
+    // Back from Settings with it on: the sheet says so.
+    store.accessibilityEnabled = true;
+    store.notifyListenersForPreview();
+    await tester.pumpAndSettle();
+    expect(find.text('App blocking is on'), findsOneWidget);
+    expect(find.text('All set'), findsOneWidget);
   });
 }

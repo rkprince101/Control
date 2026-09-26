@@ -5,7 +5,9 @@ import android.app.Activity
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageInstaller
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -114,6 +116,18 @@ class ControlBridge(private val context: Context) : MethodChannel.MethodCallHand
             "hasUsageAccess" -> result.success(usage.hasPermission())
             "openUsageAccessSettings" -> {
                 startExternal(usage.permissionIntent())
+                result.success(null)
+            }
+
+            // Restricted settings ---------------------------------------------
+            "installInfo" -> result.success(installInfo())
+            "openAppInfo" -> {
+                startExternal(
+                    Intent(
+                        Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                        Uri.fromParts("package", context.packageName, null),
+                    ),
+                )
                 result.success(null)
             }
             "usageSnapshot" -> usageSnapshot(call, result)
@@ -507,6 +521,32 @@ class ControlBridge(private val context: Context) : MethodChannel.MethodCallHand
             arrayOf(Manifest.permission.ACTIVITY_RECOGNITION),
             STEPS_PERMISSION_REQUEST,
         )
+    }
+
+    /**
+     * How this copy was installed, and on which Android.
+     *
+     * From Android 13, an app installed from a downloaded or local file has
+     * its accessibility and usage-access switches held back ("restricted
+     * settings") until the user allows them from its App info. An app from a
+     * store is not. The app cannot lift this itself; it can only tell the user
+     * how, before they meet a greyed-out switch.
+     */
+    private fun installInfo(): Map<String, Any> {
+        val source = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            runCatching {
+                when (context.packageManager.getInstallSourceInfo(context.packageName).packageSource) {
+                    PackageInstaller.PACKAGE_SOURCE_DOWNLOADED_FILE -> "downloadedFile"
+                    PackageInstaller.PACKAGE_SOURCE_LOCAL_FILE -> "localFile"
+                    PackageInstaller.PACKAGE_SOURCE_STORE -> "store"
+                    PackageInstaller.PACKAGE_SOURCE_OTHER -> "other"
+                    else -> "unspecified"
+                }
+            }.getOrDefault("unspecified")
+        } else {
+            "unspecified"
+        }
+        return mapOf("source" to source, "sdk" to Build.VERSION.SDK_INT)
     }
 
     private fun startExternal(intent: Intent) {

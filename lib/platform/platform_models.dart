@@ -297,3 +297,46 @@ class LocationStatus {
 
   bool get usable => granted && enabled;
 }
+
+/// A special-access switch Control sends the user to Android Settings for.
+enum SpecialAccess {
+  appBlocking('App blocking', 'Accessibility'),
+  usageAccess('Usage access', 'Usage access');
+
+  const SpecialAccess(this.label, this.screen);
+
+  /// What Control calls it.
+  final String label;
+
+  /// The Android Settings screen it is switched on from.
+  final String screen;
+}
+
+/// How this copy of Control was installed, and on which Android.
+///
+/// From Android 13, an app installed from a downloaded or local file, which
+/// is every copy from GitHub, has its accessibility and usage-access switches
+/// greyed out ("Controlled by restricted setting") until the user allows
+/// restricted settings from its App info.
+class InstallInfo {
+  const InstallInfo({required this.source, required this.sdk});
+
+  factory InstallInfo.fromMap(Map<Object?, Object?> map) => InstallInfo(
+    source: map['source'] as String? ?? 'unspecified',
+    sdk: (map['sdk'] as num?)?.toInt() ?? 0,
+  );
+
+  const InstallInfo.unknown() : source = 'unspecified', sdk = 0;
+
+  /// `downloadedFile`, `localFile`, `store`, `other` or `unspecified`.
+  final String source;
+  final int sdk;
+
+  /// Android 13 or later, where restricted settings exist at all.
+  bool get restrictedSettingsPossible => sdk >= 33;
+
+  /// Installed the way Android restricts: expect greyed-out switches.
+  bool get restrictedSettingsLikely =>
+      restrictedSettingsPossible &&
+      (source == 'downloadedFile' || source == 'localFile');
+}

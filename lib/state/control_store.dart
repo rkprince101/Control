@@ -312,6 +312,11 @@ class ControlStore extends ChangeNotifier {
       placeCheckIns: local.loadPlaceCheckIns(_now()),
     );
     weeklyReport = await _channel.weeklyReportEnabled();
+    try {
+      installInfo = await _channel.installInfo();
+    } catch (error) {
+      debugPrint('control: could not read install source: $error');
+    }
     // A session that was running when the app died keeps running: the clock
     // did not stop just because the process did. A pomodoro that finished in
     // the meantime is closed at its finish line.
@@ -1904,10 +1909,46 @@ class ControlStore extends ChangeNotifier {
     return count;
   }
 
-  Future<void> openAccessibilitySettings() =>
-      _channel.openAccessibilitySettings();
+  /// Opens the Accessibility screen. With [watch], a return to the app with
+  /// App blocking still off is noticed: see [takeMissedAccess].
+  Future<void> openAccessibilitySettings({bool watch = true}) {
+    if (watch) _awaitingAccess = SpecialAccess.appBlocking;
+    return _channel.openAccessibilitySettings();
+  }
 
-  Future<void> openUsageAccessSettings() => _channel.openUsageAccessSettings();
+  Future<void> openUsageAccessSettings({bool watch = true}) {
+    if (watch) _awaitingAccess = SpecialAccess.usageAccess;
+    return _channel.openUsageAccessSettings();
+  }
+
+  Future<void> openSpecialAccess(SpecialAccess access, {bool watch = true}) =>
+      switch (access) {
+        SpecialAccess.appBlocking => openAccessibilitySettings(watch: watch),
+        SpecialAccess.usageAccess => openUsageAccessSettings(watch: watch),
+      };
+
+  bool hasSpecialAccess(SpecialAccess access) => switch (access) {
+    SpecialAccess.appBlocking => accessibilityEnabled,
+    SpecialAccess.usageAccess => usageAccessGranted,
+  };
+
+  /// How Control was installed, which decides whether Android greys out its
+  /// special-access switches. Read once at start.
+  InstallInfo installInfo = const InstallInfo.unknown();
+
+  /// The switch the user was just sent to Settings for.
+  SpecialAccess? _awaitingAccess;
+
+  /// After coming back to the app: the switch the user went to turn on and
+  /// is still off, where restricted settings may be why. Reported once.
+  SpecialAccess? takeMissedAccess() {
+    final access = _awaitingAccess;
+    _awaitingAccess = null;
+    if (access == null || !installInfo.restrictedSettingsPossible) return null;
+    return hasSpecialAccess(access) ? null : access;
+  }
+
+  Future<void> openAppInfo() => _channel.openAppInfo();
 
   // Engine -------------------------------------------------------------------
 
