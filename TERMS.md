@@ -41,8 +41,8 @@ Blocking depends on Android and on permissions you can take back. Safe mode,
 turning off the Accessibility service, some manufacturers' battery settings
 and future Android versions can get past it or stop it working.
 
-Habit, focus and money figures are for your own reflection. They are not
-medical, psychological or financial advice.
+Focus and step figures are for your own reflection. They are not medical or
+psychological advice.
 
 ## No warranty
 

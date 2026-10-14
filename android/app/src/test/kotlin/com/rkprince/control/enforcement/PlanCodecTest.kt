@@ -76,9 +76,18 @@ class PlanCodecTest {
             blockedDomains = setOf("example.com"),
             schedule = listOf(NativeTimeRange(1320, 360, setOf(1, 7))),
             schedulePolarity = "allowDuring", blocked = true, allowedUntil = 12345L,
+            stepsTarget = 5000, unlockForMillis = 1_800_000L,
         ))
         val withRules = plan.copy(rules = rules)
         assertEquals(withRules, PlanCodec.decode(PlanCodec.encode(withRules)))
+    }
+
+    @Test
+    fun `a native allowance is runtime state and never stored`() {
+        val rules = listOf(NativeRule(id = "r", title = "Walk", mode = "condition", grantUntil = 99L))
+        val decoded = PlanCodec.decode(PlanCodec.encode(plan.copy(rules = rules, stepsToday = 42)))
+        assertEquals(0L, decoded.rules!!.single().grantUntil)
+        assertEquals(-1, decoded.stepsToday)
     }
 
     @Test

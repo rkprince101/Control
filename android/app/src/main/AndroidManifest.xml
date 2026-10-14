@@ -123,11 +123,6 @@
             android:name=".surface.WeeklyReportReceiver"
             android:exported="false" />
 
-        <!-- Habit reminder alarms. -->
-        <receiver
-            android:name=".surface.HabitReminderReceiver"
-            android:exported="false" />
-
         <!-- The focus timer: a foreground service while a session or break
              counts, and a backup alarm for its end. -->
         <service
@@ -142,7 +137,7 @@
             android:name=".surface.FocusTimerReceiver"
             android:exported="false" />
 
-        <!-- Re-arms reminders and the weekly report when the wall clock, the
+        <!-- Re-arms the weekly report when the wall clock, the
              time zone, or the right to exact alarms changes. -->
         <receiver
             android:name=".surface.AlarmRestoreReceiver"

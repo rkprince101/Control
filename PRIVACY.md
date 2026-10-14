@@ -2,8 +2,8 @@
 
 _Last updated: 25 September 2026_
 
-Control is an app for blocking distracting apps and websites, building habits,
-and keeping todos, notes and a money log. It is made by Rishikesh Prince
+Control is an app for blocking distracting apps and websites until you have
+done what you promised yourself. It is made by Rishikesh Prince
 Prajapati ("I", "me"). This policy explains what the app reads, what it keeps,
 and where that goes.
 
@@ -28,8 +28,8 @@ messages, or anything else on screen beyond what is listed above.
 
 ## What Control stores
 
-Your rules, locks, habits, todos, notes, money entries, budgets, loans, focus
-sessions and settings are saved in the app's private storage on your phone.
+Your rules, locks, focus sessions and settings are saved in the app's private
+storage on your phone.
 If you set a page-lock PIN, only a salted SHA-256 hash of it is stored, never
 the PIN itself; block passwords are stored the same way, as salted, iterated
 hashes.
@@ -61,8 +61,7 @@ the app.
 
 ## Notifications
 
-Control shows notifications for the focus timer, habit reminders and the
-weekly report. They are created on the phone; no push service is involved.
+Control shows notifications for the focus timer and the weekly report. They are created on the phone; no push service is involved.
 
 ## Sharing and selling
 

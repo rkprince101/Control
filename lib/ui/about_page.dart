@@ -94,9 +94,9 @@ class AboutPage extends StatelessWidget {
                     const SizedBox(height: 8),
                     Text(
                       'Control blocks the apps and websites that pull you in '
-                      'until you have done what you promised yourself, and '
-                      'keeps your habits, todos, notes and money in one calm '
-                      'place. Free, open source, and everything stays on '
+                      'until you have done what you promised yourself: a '
+                      'walk, a focus session, or simply the end of a '
+                      'schedule. Free, open source, and everything stays on '
                       'your phone.',
                       textAlign: TextAlign.center,
                       style: theme.textTheme.bodyMedium?.copyWith(

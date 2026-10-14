@@ -17,8 +17,9 @@ import com.rkprince.control.R
  *  - **Device admin.** Granted from a normal dialog. While it is active Android
  *    refuses to uninstall the app; the user has to deactivate admin first,
  *    which is one tap in Settings. Real friction, not a wall.
- *  - **Device owner.** Provisioned with `adb shell dpm set-device-owner` on a
- *    device with no accounts, so in practice after a factory reset. Unlocks
+ *  - **Device owner.** Provisioned with `adb shell dpm set-device-owner` while
+ *    no accounts and no other users are on the device. Removing the accounts
+ *    for a minute is enough; a factory reset is the fallback. Unlocks
  *    `setUninstallBlocked` and system restrictions. The app's release path can
  *    undo these; recovery and factory reset remain outside its guarantees.
  */
@@ -130,19 +131,6 @@ object DeviceAdmin {
         }
         return applied
     }
-
-    /**
-     * Whether this device could still be provisioned as device owner.
-     *
-     * `isProvisioningAllowed` is the same check the system runs: it returns
-     * false once any account is added, once the device is already provisioned,
-     * and on secondary users. That makes it the honest answer to "will the adb
-     * command work", which is otherwise only discoverable by trying it.
-     */
-    fun isProvisioningAllowed(context: Context): Boolean = runCatching {
-        policyManager(context)
-            .isProvisioningAllowed(DevicePolicyManager.ACTION_PROVISION_MANAGED_DEVICE)
-    }.getOrDefault(false)
 
     /** The component string the `dpm set-device-owner` command needs. */
     fun ownerComponent(context: Context): String =

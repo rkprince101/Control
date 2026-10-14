@@ -2,6 +2,7 @@ package com.rkprince.control.bridge
 
 import android.Manifest
 import android.app.Activity
+import android.content.ActivityNotFoundException
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -20,6 +21,8 @@ import com.rkprince.control.enforcement.Plan
 import com.rkprince.control.enforcement.BlockDetail
 import com.rkprince.control.enforcement.PlanStore
 import com.rkprince.control.enforcement.PlanCodec
+import com.rkprince.control.enforcement.NativeGrantStore
+import com.rkprince.control.enforcement.ShieldHealth
 import com.rkprince.control.enforcement.TamperGuard
 import com.rkprince.control.insights.InstalledAppsReader
 import com.rkprince.control.insights.AppCategoryResolver
@@ -30,8 +33,6 @@ import com.rkprince.control.shortcuts.ShortcutStore
 import com.rkprince.control.surface.ControlWidgetProvider
 import com.rkprince.control.surface.FocusTimer
 import com.rkprince.control.surface.NotificationAccess
-import com.rkprince.control.surface.HabitReminder
-import com.rkprince.control.surface.HabitReminders
 import com.rkprince.control.surface.Summary
 import com.rkprince.control.surface.SummaryStore
 import com.rkprince.control.surface.WeeklyReport
@@ -105,6 +106,19 @@ class ControlBridge(private val context: Context) : MethodChannel.MethodCallHand
             "applyPlan" -> applyPlan(call, result)
             "readPlan" -> result.success(planStore.read().toMap())
             "enforcementTime" -> result.success(EnforcementClock.now(context))
+            // Allowances Android minted itself when a steps target was reached.
+            "nativeGrants" -> result.success(
+                NativeGrantStore(context).read().mapValues { (_, grant) ->
+                    mapOf("grantedAt" to grant.grantedAt, "expiresAt" to grant.expiresAt)
+                },
+            )
+            "shieldHealth" -> result.success(
+                mapOf("lastFallbackAt" to ShieldHealth.lastFallbackAt(context)),
+            )
+            "clearShieldHealth" -> {
+                ShieldHealth.clear(context)
+                result.success(null)
+            }
 
             "isAccessibilityEnabled" -> result.success(isAccessibilityEnabled())
             "openAccessibilitySettings" -> {
@@ -130,6 +144,9 @@ class ControlBridge(private val context: Context) : MethodChannel.MethodCallHand
                 )
                 result.success(null)
             }
+            "openSystemScreen" -> result.success(
+                openSystemScreen(call.argument<String>("screen").orEmpty()),
+            )
             "usageSnapshot" -> usageSnapshot(call, result)
             "usageTimeline" -> usageTimeline(call, result)
             "installedApps" -> result.success(apps.launchable().map { it.toMap() })
@@ -249,11 +266,6 @@ class ControlBridge(private val context: Context) : MethodChannel.MethodCallHand
                 NotificationAccess.exactAlarmIntent(context)?.let { startExternal(it) }
                 result.success(null)
             }
-            "setHabitReminders" -> {
-                val raw = call.argument<List<Map<*, *>>>("reminders") ?: emptyList()
-                HabitReminders.replace(context, raw.mapNotNull { HabitReminder.fromMap(it) })
-                result.success(null)
-            }
 
             // Uninstall protection --------------------------------------------
             "protectionStatus" -> result.success(
@@ -267,8 +279,8 @@ class ControlBridge(private val context: Context) : MethodChannel.MethodCallHand
             "deviceOwnerStatus" -> result.success(
                 mapOf(
                     "isOwner" to DeviceAdmin.isDeviceOwner(context),
-                    "provisioningAllowed" to DeviceAdmin.isProvisioningAllowed(context),
                     "component" to DeviceAdmin.ownerComponent(context),
+                    "manufacturer" to Build.MANUFACTURER.orEmpty(),
                 ),
             )
             "requestDeviceAdmin" -> requestDeviceAdmin(result)
@@ -546,11 +558,85 @@ class ControlBridge(private val context: Context) : MethodChannel.MethodCallHand
         } else {
             "unspecified"
         }
-        return mapOf("source" to source, "sdk" to Build.VERSION.SDK_INT)
+        return mapOf(
+            "source" to source,
+            "sdk" to Build.VERSION.SDK_INT,
+            "manufacturer" to Build.MANUFACTURER.orEmpty(),
+        )
     }
 
     private fun startExternal(intent: Intent) {
         context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    }
+
+    /**
+     * Opens a system screen a setup step points at, trying the most specific
+     * page first. Manufacturer pages (MIUI's autostart and permission editor)
+     * move between releases, so each has fallbacks down to Control's own App
+     * info, which every build has. False only if nothing at all would open.
+     */
+    private fun openSystemScreen(screen: String): Boolean {
+        val pkg = context.packageName
+        val appInfo = Intent(
+            Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+            Uri.fromParts("package", pkg, null),
+        )
+        val candidates = when (screen) {
+            "developer" -> listOf(
+                Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS),
+                Intent(Settings.ACTION_DEVICE_INFO_SETTINGS),
+            )
+            "accounts" -> listOf(
+                Intent(Settings.ACTION_SYNC_SETTINGS),
+                Intent(Settings.ACTION_SETTINGS),
+            )
+            "users" -> listOf(
+                Intent("android.settings.USER_SETTINGS"),
+                Intent(Settings.ACTION_SETTINGS),
+            )
+            "autostart" -> listOf(
+                Intent().setComponent(
+                    ComponentName(
+                        "com.miui.securitycenter",
+                        "com.miui.permcenter.autostart.AutoStartManagementActivity",
+                    ),
+                ),
+                appInfo,
+            )
+            "otherPermissions" -> listOf(
+                Intent("miui.intent.action.APP_PERM_EDITOR")
+                    .setClassName(
+                        "com.miui.securitycenter",
+                        "com.miui.permcenter.permissions.PermissionsEditorActivity",
+                    )
+                    .putExtra("extra_pkgname", pkg),
+                Intent("miui.intent.action.APP_PERM_EDITOR").putExtra("extra_pkgname", pkg),
+                appInfo,
+            )
+            "battery" -> listOf(
+                Intent().setComponent(
+                    ComponentName(
+                        "com.miui.powerkeeper",
+                        "com.miui.powerkeeper.ui.HiddenAppsConfigActivity",
+                    ),
+                )
+                    .putExtra("package_name", pkg)
+                    .putExtra("package_label", context.applicationInfo.loadLabel(context.packageManager)),
+                appInfo,
+            )
+            else -> listOf(appInfo)
+        }
+        for (intent in candidates) {
+            try {
+                startExternal(intent)
+                return true
+            } catch (_: ActivityNotFoundException) {
+                // Not on this build; try the next one.
+            } catch (_: SecurityException) {
+                // Present but not exported to us; try the next one.
+            }
+        }
+        return false
     }
 
     /**

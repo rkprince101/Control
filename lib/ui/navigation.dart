@@ -4,33 +4,18 @@ import 'package:control_core/control_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
-import '../data/habits.dart';
 import '../data/legal.dart';
-import '../data/notes.dart';
-import '../data/todos.dart';
 import '../main.dart';
 import '../state/control_store.dart';
 import 'about_page.dart';
 import 'block_editor_sheet.dart';
-import 'habit_sheets.dart';
-import 'habit_widgets.dart';
 import 'legal_page.dart';
 import 'support.dart';
-import 'note_editor.dart';
-import 'todos_page.dart';
 import 'theme.dart';
 
 /// The places the app can be.
 enum Destination {
   blocks('Blocks', Icons.shield_outlined, Icons.shield_rounded),
-  habits('Habits', Icons.local_florist_outlined, Icons.local_florist_rounded),
-  todos('Todos', Icons.task_alt_outlined, Icons.task_alt_rounded),
-  notes('Notes', Icons.sticky_note_2_outlined, Icons.sticky_note_2_rounded),
-  money(
-    'Money',
-    Icons.account_balance_wallet_outlined,
-    Icons.account_balance_wallet_rounded,
-  ),
   insights('Insights', Icons.bar_chart_outlined, Icons.bar_chart_rounded),
   settings('Settings', Icons.tune_outlined, Icons.tune_rounded);
 
@@ -75,7 +60,7 @@ class HomeNavigation extends InheritedWidget {
 /// the menu on the left, the search in the middle, and a status avatar on the
 /// right.
 ///
-/// It is also the fastest way around the app: every rule, habit and page is a
+/// It is also the fastest way around the app: every rule and page is a
 /// few letters away.
 class ShellSearchBar extends StatelessWidget {
   const ShellSearchBar({required this.horizontalPadding, super.key});
@@ -98,7 +83,7 @@ class ShellSearchBar extends StatelessWidget {
           8,
         ),
         child: SearchAnchor(
-          viewHintText: 'Search rules, habits, todos and notes',
+          viewHintText: 'Search rules and pages',
           viewBackgroundColor: scheme.surface,
           viewSurfaceTintColor: Colors.transparent,
           dividerColor: scheme.outlineVariant,
@@ -167,21 +152,6 @@ class ShellSearchBar extends StatelessWidget {
     final rules = open(Destination.blocks)
         ? store.blocks.where((block) => matches(block.name))
         : const <Block>[];
-    final habits = open(Destination.habits)
-        ? store.habits.where(
-            (habit) => matches(habit.name) || matches(habit.description),
-          )
-        : const <Habit>[];
-    // Undone todos, and every note, only once something has been typed:
-    // they are many, and the empty search is for getting around.
-    final todos = query.isEmpty || !open(Destination.todos)
-        ? const <Todo>[]
-        : store.todos.where((todo) => !todo.isDone && matches(todo.title));
-    final notes = query.isEmpty || !open(Destination.notes)
-        ? const <Note>[]
-        : store.notes.where(
-            (note) => matches(note.title) || matches(note.preview),
-          );
 
     void close() => controller.closeView('');
 
@@ -215,73 +185,7 @@ class ShellSearchBar extends StatelessWidget {
             },
           ),
       ],
-      if (habits.isNotEmpty) ...[
-        const _ResultHeader('Habits'),
-        for (final habit in habits)
-          ListTile(
-            leading: HabitIconTile(habit: habit, size: 36),
-            title: Text(habit.name),
-            subtitle: Text(habit.goalLabel),
-            onTap: () {
-              close();
-              navigation.onSelect(Destination.habits);
-              HabitDetailSheet.show(pageContext, habit);
-            },
-          ),
-      ],
-      if (todos.isNotEmpty) ...[
-        const _ResultHeader('Todos'),
-        for (final todo in todos)
-          ListTile(
-            leading: const Icon(Icons.radio_button_unchecked_rounded),
-            title: Text(todo.title),
-            subtitle: Text(
-              todo.date == null
-                  ? 'No due date'
-                  : MaterialLocalizations.of(
-                      searchContext,
-                    ).formatMediumDate(todo.date!),
-            ),
-            onTap: () {
-              close();
-              navigation.onSelect(Destination.todos);
-              TodoDetailSheet.show(pageContext, todo.id);
-            },
-          ),
-      ],
-      if (notes.isNotEmpty) ...[
-        const _ResultHeader('Notes'),
-        for (final note in notes)
-          ListTile(
-            leading: Icon(
-              note.pinned
-                  ? Icons.push_pin_rounded
-                  : Icons.sticky_note_2_outlined,
-            ),
-            title: Text(
-              note.title.isEmpty ? note.preview : note.title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-            subtitle: note.title.isEmpty || note.preview.isEmpty
-                ? null
-                : Text(
-                    note.preview,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-            onTap: () {
-              close();
-              navigation.onSelect(Destination.notes);
-              NoteEditorScreen.open(pageContext, note: note);
-            },
-          ),
-      ],
-      if (pages.isEmpty &&
-          rules.isEmpty &&
-          habits.isEmpty &&
-          todos.isEmpty &&
-          notes.isEmpty)
+      if (pages.isEmpty && rules.isEmpty)
         Padding(
           padding: const EdgeInsets.all(32),
           child: Text(
@@ -373,10 +277,6 @@ class ControlDrawer extends StatelessWidget {
             const _DrawerHeader(),
             for (final destination in const [
               Destination.blocks,
-              Destination.habits,
-              Destination.todos,
-              Destination.notes,
-              Destination.money,
               Destination.insights,
             ])
               DrawerItem(
@@ -473,16 +373,6 @@ class ControlDrawer extends StatelessWidget {
                 .length ??
             0;
         return blocking == 0 ? null : '$blocking';
-      case Destination.habits:
-        final today = store.habitProgressOn(dateOnly(store.wallNow()));
-        final left = today.due - today.done;
-        return left <= 0 ? null : '$left';
-      case Destination.todos:
-        // What is still open today, overdue included, as Gmail counts unread.
-        final open = store.todoBook.pendingCountFor(dateOnly(store.wallNow()));
-        return open <= 0 ? null : (open > 99 ? '99+' : '$open');
-      case Destination.notes || Destination.money:
-        return null;
       case Destination.insights:
         final time = store.usage.screenTime;
         return !store.usageAccessGranted || time == Duration.zero

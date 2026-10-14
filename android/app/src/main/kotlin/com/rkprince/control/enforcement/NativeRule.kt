@@ -1,6 +1,7 @@
 package com.rkprince.control.enforcement
 
 import java.util.Calendar
+import java.util.Locale
 
 data class NativeTimeRange(
     val startMinute: Int,
@@ -17,7 +18,13 @@ data class NativeTimeRange(
     }
 }
 
-/** Enabled rules only. Place/device signals remain owned by Dart. */
+/**
+ * Enabled rules only. Place/device signals remain owned by Dart.
+ *
+ * Steps are the one condition Android can settle on its own: when [stepsTarget]
+ * is set, Dart has found every other condition met, and reaching the target
+ * mints an allowance natively ([StepUnlockRules]) without Flutter running.
+ */
 data class NativeRule(
     val id: String,
     val title: String,
@@ -30,6 +37,12 @@ data class NativeRule(
     val schedulePolarity: String = "blockDuring",
     val blocked: Boolean = false,
     val allowedUntil: Long = 0L,
+    /** Steps that unlock this rule natively, or 0 when Dart decides alone. */
+    val stepsTarget: Int = 0,
+    /** How long a native allowance lasts; 0 means until midnight. */
+    val unlockForMillis: Long = 0L,
+    /** Runtime only, never stored: end of a native allowance in force. */
+    val grantUntil: Long = 0L,
 ) {
     fun isBlocked(now: Long, local: Calendar = Calendar.getInstance().apply { timeInMillis = now }): Boolean =
         when (mode) {
@@ -39,7 +52,8 @@ data class NativeRule(
                 val inside = schedule.any { it.contains(minute, weekday) }
                 schedule.isNotEmpty() && (if (schedulePolarity == "allowDuring") !inside else inside)
             }
-            "condition" -> blocked || (allowedUntil > 0 && allowedUntil <= now)
+            "condition" -> grantUntil <= now &&
+                (blocked || (allowedUntil > 0 && allowedUntil <= now))
             else -> blocked
         }
 
@@ -47,7 +61,31 @@ data class NativeRule(
         packageName in apps ||
             (packageName !in excludedApps && categories.any { it in appCategories })
 
-    fun detail(): BlockDetail = BlockDetail(
+    fun detail(stepsToday: Int = -1): BlockDetail {
+        if (mode == "condition" && stepsTarget > 0 && stepsToday >= 0) {
+            val done = stepsToday.coerceAtMost(stepsTarget)
+            return BlockDetail(
+                title = title,
+                // Blocked with the target met means today's allowance from
+                // walking has already been spent.
+                status = if (done >= stepsTarget) {
+                    "Today's walk already bought its time. It unlocks again tomorrow."
+                } else {
+                    String.format(
+                        Locale.getDefault(),
+                        "%,d of %,d steps today. Reach it and this unlocks.",
+                        done,
+                        stepsTarget,
+                    )
+                },
+                progressPercent = (done * 100L / stepsTarget).toInt(),
+                unlockAt = 0L,
+            )
+        }
+        return staticDetail()
+    }
+
+    private fun staticDetail(): BlockDetail = BlockDetail(
         title = title,
         status = when (mode) {
             "time" -> "Blocked by your recurring schedule."

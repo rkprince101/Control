@@ -10,6 +10,7 @@
     <string name="block_progress">%1$d%% of the way there</string>
     <string name="block_countdown">Unlocks in %1$s</string>
     <string name="block_unlocking">Unlocking now</string>
+    <string name="block_fallback_toast">%1$s is blocked. Allow Control to show pop-up windows to see why.</string>
     <string name="block_web_reason">%1$s is blocked right now, in the app and in the browser.</string>
 
     <string name="shortcut_fired">%1$s logged (%2$d today)</string>
@@ -32,9 +33,6 @@
     <string name="weekly_channel">Weekly report</string>
     <string name="weekly_channel_body">A summary of your week, once a week.</string>
     <string name="weekly_title">Your week in Control</string>
-
-    <string name="habit_channel">Habit reminders</string>
-    <string name="habit_channel_body">Nudges at the times you set for each habit.</string>
 
     <string name="focus_channel">Focus timer</string>
     <string name="focus_channel_body">The running pomodoro, stopwatch or break, with its clock.</string>

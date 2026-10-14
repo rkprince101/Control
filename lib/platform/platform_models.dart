@@ -244,36 +244,71 @@ enum ProtectionTier {
   final String label;
 }
 
-/// Whether this device can still be handed device-owner rights, and the
-/// component string the provisioning command needs.
+/// System screens the setup guides send people to. Names travel to Android
+/// as they are.
+enum SystemScreen {
+  /// Developer options, or About phone where they are switched on.
+  developer,
+
+  /// Accounts, which have to be empty while device owner is provisioned.
+  accounts,
+
+  /// Users, guest, and the like: also must be gone for provisioning.
+  users,
+
+  /// MIUI / HyperOS: which apps may start on their own.
+  autostart,
+
+  /// MIUI / HyperOS: "Other permissions", which holds the pop-up and
+  /// show-on-lock-screen switches the block screen needs.
+  otherPermissions,
+
+  /// MIUI / HyperOS: the per-app battery saver.
+  battery,
+}
+
+/// Whether Control is device owner, and what the provisioning command needs.
+///
+/// There is deliberately no "will the command work" flag. The only API that
+/// sounds like one, `isProvisioningAllowed`, answers for the setup-wizard
+/// route and says no on every phone that has finished setup, while the adb
+/// route this sheet uses only needs the accounts and extra users gone. An
+/// app cannot see either of those reliably, so the sheet says what to check
+/// instead of guessing.
 class DeviceOwnerStatus {
   const DeviceOwnerStatus({
     required this.isOwner,
-    required this.provisioningAllowed,
     required this.component,
+    this.manufacturer = '',
   });
 
   factory DeviceOwnerStatus.fromMap(Map<Object?, Object?> map) =>
       DeviceOwnerStatus(
         isOwner: map['isOwner'] as bool? ?? false,
-        provisioningAllowed: map['provisioningAllowed'] as bool? ?? false,
         component: map['component'] as String? ?? '',
+        manufacturer: map['manufacturer'] as String? ?? '',
       );
 
   const DeviceOwnerStatus.unknown()
     : isOwner = false,
-      provisioningAllowed = false,
-      component = '';
+      component = '',
+      manufacturer = '';
 
   final bool isOwner;
 
-  /// False once any account is on the device, once it is already provisioned,
-  /// or on a secondary user. This is the same check the system runs, so it is
-  /// the honest answer to "will the command work".
-  final bool provisioningAllowed;
-
   /// `com.rkprince.control/.enforcement.ControlDeviceAdminReceiver`
   final String component;
+
+  /// `Build.MANUFACTURER`, for the steps only some makers need.
+  final String manufacturer;
+
+  /// Xiaomi, Redmi and POCO refuse `dpm` from adb with "Calling identity is
+  /// not authorized" until a second, Xiaomi-only debugging switch is on.
+  bool get isXiaomi => const {
+    'xiaomi',
+    'redmi',
+    'poco',
+  }.contains(manufacturer.trim().toLowerCase());
 
   String get command => 'adb shell dpm set-device-owner $component';
 }
@@ -319,18 +354,38 @@ enum SpecialAccess {
 /// greyed out ("Controlled by restricted setting") until the user allows
 /// restricted settings from its App info.
 class InstallInfo {
-  const InstallInfo({required this.source, required this.sdk});
+  const InstallInfo({
+    required this.source,
+    required this.sdk,
+    this.manufacturer = '',
+  });
 
   factory InstallInfo.fromMap(Map<Object?, Object?> map) => InstallInfo(
     source: map['source'] as String? ?? 'unspecified',
     sdk: (map['sdk'] as num?)?.toInt() ?? 0,
+    manufacturer: map['manufacturer'] as String? ?? '',
   );
 
-  const InstallInfo.unknown() : source = 'unspecified', sdk = 0;
+  const InstallInfo.unknown()
+    : source = 'unspecified',
+      sdk = 0,
+      manufacturer = '';
 
   /// `downloadedFile`, `localFile`, `store`, `other` or `unspecified`.
   final String source;
   final int sdk;
+
+  /// `Build.MANUFACTURER`.
+  final String manufacturer;
+
+  /// MIUI and HyperOS: an accessibility service is switched off when the app
+  /// is cleared from recents without Autostart, and the block screen needs
+  /// a pop-up permission no other Android has.
+  bool get isXiaomi => const {
+    'xiaomi',
+    'redmi',
+    'poco',
+  }.contains(manufacturer.trim().toLowerCase());
 
   /// Android 13 or later, where restricted settings exist at all.
   bool get restrictedSettingsPossible => sdk >= 33;

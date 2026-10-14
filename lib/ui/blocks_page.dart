@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../data/descriptions.dart';
 import '../main.dart';
+import '../platform/platform_models.dart';
 import '../state/control_store.dart';
 import 'block_editor_sheet.dart';
 import 'control_page.dart';
@@ -28,11 +29,28 @@ class BlocksPage extends StatelessWidget {
       children: [
         if (!store.accessibilityEnabled) ...[
           _Warning(
-            text:
-                'Blocks are not being enforced. Turn on App blocking to apply '
-                'your rules.',
+            text: store.installInfo.isXiaomi
+                ? 'Blocks are not being enforced. Turn on App blocking to '
+                      'apply your rules, then allow Autostart in Settings, '
+                      'Keep blocking on, so it stays on.'
+                : 'Blocks are not being enforced. Turn on App blocking to '
+                      'apply your rules.',
             actionLabel: 'Fix',
             onAction: () => Disclosures.appBlocking(context),
+          ),
+          const SizedBox(height: 12),
+        ] else if (store.shieldFallbackAt != null) ...[
+          _Warning(
+            text:
+                'Android stopped the block screen from appearing, so Control '
+                'sent you Home instead. Allow Control to show pop-up windows '
+                'while running in the background to see why an app is '
+                'blocked.',
+            actionLabel: 'Fix',
+            onAction: () {
+              store.dismissShieldFallback();
+              store.openSystemScreen(SystemScreen.otherPermissions);
+            },
           ),
           const SizedBox(height: 12),
         ],

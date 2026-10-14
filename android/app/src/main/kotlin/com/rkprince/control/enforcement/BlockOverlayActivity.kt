@@ -86,8 +86,8 @@ class BlockOverlayActivity : Activity() {
             finish()
             return false
         }
-        val plan = planStore.read()
         val now = EnforcementClock.now(this)
+        val plan = StepUnlocks.apply(this, planStore.read(), now)
         val tokens = if (plan.rules?.any { it.categories.isNotEmpty() } == true) {
             categories.categories(blockedPackage)
         } else emptySet()

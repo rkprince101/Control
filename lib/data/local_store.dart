@@ -7,11 +7,7 @@ import 'package:path_provider/path_provider.dart';
 
 import 'block_codec.dart';
 import 'focus.dart';
-import 'habits.dart';
-import 'money.dart';
-import 'notes.dart';
 import 'page_lock.dart';
-import 'todos.dart';
 
 /// Local persistence for everything a restart must not reset.
 ///
@@ -110,8 +106,9 @@ class LocalStore {
     return {
       for (final entry in raw.entries)
         if (entry.key is String && entry.value is Map<String, Object?>)
-          entry.key! as String:
-              _decodeGrant(entry.value! as Map<String, Object?>),
+          entry.key! as String: _decodeGrant(
+            entry.value! as Map<String, Object?>,
+          ),
     };
   }
 
@@ -155,7 +152,9 @@ class LocalStore {
   Future<void> saveFocusSessions(List<FocusSession> sessions, DateTime now) {
     final cutoff = now.subtract(const Duration(days: 120));
     _state[_focusSessions] = sessions
-        .where((session) => session.isRunning || session.startedAt.isAfter(cutoff))
+        .where(
+          (session) => session.isRunning || session.startedAt.isAfter(cutoff),
+        )
         .map((session) => session.toMap())
         .toList();
     return _save();
@@ -200,10 +199,11 @@ class LocalStore {
   // Emergency unlocks --------------------------------------------------------
 
   EmergencyUnlocks loadEmergencyUnlocks() => EmergencyUnlocks(
-        remaining: (_state[_emergencyRemaining] as num?)?.toInt() ??
-            EmergencyUnlocks.defaultTotal,
-        total: EmergencyUnlocks.defaultTotal,
-      );
+    remaining:
+        (_state[_emergencyRemaining] as num?)?.toInt() ??
+        EmergencyUnlocks.defaultTotal,
+    total: EmergencyUnlocks.defaultTotal,
+  );
 
   Future<void> saveEmergencyUnlocks(EmergencyUnlocks pool) {
     _state[_emergencyRemaining] = pool.remaining;
@@ -223,112 +223,6 @@ class LocalStore {
     _state[_clockHighWater] = value.millisecondsSinceEpoch;
   }
 
-  // Habits -------------------------------------------------------------------
-
-  List<Habit> loadHabits() {
-    final raw = _state[_habits];
-    if (raw is! List) return [];
-    return raw
-        .whereType<Map<String, Object?>>()
-        .map(Habit.fromMap)
-        .whereType<Habit>()
-        .toList();
-  }
-
-  Future<void> saveHabits(List<Habit> habits) {
-    _state[_habits] = habits.map((habit) => habit.toMap()).toList();
-    return _save();
-  }
-
-  /// Habit id to day key to amount. Day keys are stored as strings because
-  /// JSON object keys cannot be anything else.
-  Map<String, Map<int, int>> loadHabitLog() {
-    final raw = _state[_habitLog];
-    if (raw is! Map) return {};
-    return {
-      for (final entry in raw.entries)
-        if (entry.key is String && entry.value is Map)
-          entry.key! as String: {
-            for (final day in (entry.value! as Map).entries)
-              if (int.tryParse('${day.key}') case final key?)
-                if (day.value is num) key: (day.value! as num).toInt(),
-          },
-    };
-  }
-
-  Future<void> saveHabitLog(Map<String, Map<int, int>> log) {
-    _state[_habitLog] = {
-      for (final entry in log.entries)
-        if (entry.value.isNotEmpty)
-          entry.key: {
-            for (final day in entry.value.entries)
-              if (day.value > 0) '${day.key}': day.value,
-          },
-    };
-    return _save();
-  }
-
-  HabitTimer? loadHabitTimer() => HabitTimer.fromMap(_state[_habitTimer]);
-
-  // Todos and notes -----------------------------------------------------
-
-  List<Todo> loadTodos() => [
-    for (final raw in (_state[_todos] as List?) ?? const []) ?Todo.fromJson(raw),
-  ];
-
-  Future<void> saveTodos(List<Todo> todos) {
-    _state[_todos] = [for (final todo in todos) todo.toJson()];
-    return _save();
-  }
-
-  List<Note> loadNotes() => [
-    for (final raw in (_state[_notes] as List?) ?? const []) ?Note.fromJson(raw),
-  ];
-
-  Future<void> saveNotes(List<Note> notes) {
-    _state[_notes] = [for (final note in notes) note.toJson()];
-    return _save();
-  }
-
-  // Money ---------------------------------------------------------------------
-
-  List<ExpenseEntry> loadMoneyEntries() => [
-    for (final raw in (_state[_moneyEntries] as List?) ?? const [])
-      ?ExpenseEntry.fromJson(raw),
-  ];
-
-  Future<void> saveMoneyEntries(List<ExpenseEntry> entries) {
-    _state[_moneyEntries] = [for (final entry in entries) entry.toJson()];
-    return _save();
-  }
-
-  List<Budget> loadBudgets() => [
-    for (final raw in (_state[_budgets] as List?) ?? const [])
-      ?Budget.fromJson(raw),
-  ];
-
-  Future<void> saveBudgets(List<Budget> budgets) {
-    _state[_budgets] = [for (final budget in budgets) budget.toJson()];
-    return _save();
-  }
-
-  List<LoanEntry> loadLoans() => [
-    for (final raw in (_state[_loans] as List?) ?? const [])
-      ?LoanEntry.fromJson(raw),
-  ];
-
-  Future<void> saveLoans(List<LoanEntry> loans) {
-    _state[_loans] = [for (final loan in loans) loan.toJson()];
-    return _save();
-  }
-
-  String? loadCurrency() => _state[_currency] as String?;
-
-  Future<void> saveCurrency(String code) {
-    _state[_currency] = code;
-    return _save();
-  }
-
   // Page lock -----------------------------------------------------------------
 
   PageLock loadPageLock() => PageLock.fromJson(_state[_pageLock]);
@@ -338,23 +232,6 @@ class LocalStore {
       _state[_pageLock] = lock.toJson();
     } else {
       _state.remove(_pageLock);
-    }
-    return _save();
-  }
-
-  /// The highest growth stage already celebrated.
-  int loadGrowthStageSeen() => (_state[_growthSeen] as num?)?.toInt() ?? 0;
-
-  Future<void> saveGrowthStageSeen(int stage) {
-    _state[_growthSeen] = stage;
-    return _save();
-  }
-
-  Future<void> saveHabitTimer(HabitTimer? timer) {
-    if (timer == null) {
-      _state.remove(_habitTimer);
-    } else {
-      _state[_habitTimer] = timer.toMap();
     }
     return _save();
   }
@@ -386,15 +263,5 @@ class LocalStore {
   static const _checkIns = 'placeCheckIns';
   static const _checkInDay = 'placeCheckInDay';
   static const _protectionLock = 'protectionLock';
-  static const _habits = 'habits';
-  static const _habitLog = 'habitLog';
-  static const _habitTimer = 'habitTimer';
-  static const _growthSeen = 'growthStageSeen';
-  static const _todos = 'todos';
-  static const _notes = 'notes';
-  static const _moneyEntries = 'moneyEntries';
-  static const _budgets = 'moneyBudgets';
-  static const _loans = 'moneyLoans';
-  static const _currency = 'currency';
   static const _pageLock = 'pageLock';
 }

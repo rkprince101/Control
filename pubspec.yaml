@@ -1,5 +1,5 @@
 name: control
-description: "Blocks, habits, todos, notes and money for a calmer phone."
+description: "App and website blocking for a calmer phone."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -45,8 +45,6 @@ dependencies:
   google_fonts: ^8.2.1
   flutter_map: ^8.3.2
   latlong2: ^0.10.1
-  # Rich text for notes: bold, headings, checklists, text colour.
-  flutter_quill: ^11.6.0
   # Opens the support links and Hushroom's Play listing in their own apps.
   url_launcher: ^6.3.2
   # The version shown on the About page, read from the build itself.

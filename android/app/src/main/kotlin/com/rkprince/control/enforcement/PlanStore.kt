@@ -40,6 +40,8 @@ data class Plan(
     val details: Map<String, BlockDetail>,
     /** Null is the legacy snapshot contract; an empty list clears all rules. */
     val rules: List<NativeRule>? = null,
+    /** Runtime only: today's steps, for the block screen, or -1 if unread. */
+    val stepsToday: Int = -1,
 ) {
     fun blocks(
         packageName: String,
@@ -80,7 +82,8 @@ data class Plan(
             it.isBlocked(now) && (it.targets(key, categories) || key in it.blockedDomains)
         }
         val first = matches.firstOrNull() ?: return BlockDetail.EMPTY
-        return first.detail().copy(title = matches.map { it.title }.distinct().joinToString(", "))
+        return first.detail(stepsToday)
+            .copy(title = matches.map { it.title }.distinct().joinToString(", "))
     }
 
     /**
@@ -218,7 +221,9 @@ object PlanCodec {
                 })
                 .put("schedulePolarity", rule.schedulePolarity)
                 .put("blocked", rule.blocked)
-                .put("allowedUntil", rule.allowedUntil))
+                .put("allowedUntil", rule.allowedUntil)
+                .put("stepsTarget", rule.stepsTarget)
+                .put("unlockForMillis", rule.unlockForMillis))
         }
     }
 
@@ -252,6 +257,8 @@ object PlanCodec {
             schedulePolarity = polarity,
             blocked = raw.optBoolean("blocked", false),
             allowedUntil = raw.optLong("allowedUntil", 0L),
+            stepsTarget = raw.optInt("stepsTarget", 0).coerceAtLeast(0),
+            unlockForMillis = raw.optLong("unlockForMillis", 0L).coerceAtLeast(0L),
         )
     }
 

@@ -5,9 +5,7 @@
 For anyone who picks up their phone for one thing and looks up an hour later.
 Control puts a block screen in front of the apps and websites that pull you
 in, and keeps it there until you have done what you promised yourself: a
-focus session, a walk, a habit, or simply the end of a schedule. Around it are
-the things that help the time you get back go somewhere: habits, todos, notes
-and a money log.
+focus session, a walk, a habit, or simply the end of a schedule.
 
 Free and open source. No account, no ads, no tracking: everything stays on
 your phone.
@@ -20,9 +18,9 @@ your phone.
 
 <p align="center">
   <img src="docs/screenshots/01_blocks.png" width="23%" alt="Blocks">
-  <img src="docs/screenshots/02_habits.png" width="23%" alt="Habits">
-  <img src="docs/screenshots/06_money.png" width="23%" alt="Money">
-  <img src="docs/screenshots/10_dark.png" width="23%" alt="Habits in the dark theme">
+  <img src="docs/screenshots/02_insights.png" width="23%" alt="Insights">
+  <img src="docs/screenshots/03_drawer.png" width="23%" alt="Navigation drawer">
+  <img src="docs/screenshots/04_dark.png" width="23%" alt="Blocks in the dark theme">
 </p>
 
 ---
@@ -84,6 +82,17 @@ With a computer and `adb`, step 2 is one command:
 adb shell appops set com.rkprince.control ACCESS_RESTRICTED_SETTINGS allow
 ```
 
+**On Xiaomi, Redmi and POCO (MIUI / HyperOS)** three more switches decide
+whether blocking keeps working, and Settings > Keep blocking on (Xiaomi) has a
+button for each:
+
+- **Autostart** on for Control. Without it, clearing Control from Recents
+  switches App blocking off, and blocks silently stop.
+- **Other permissions > Display pop-up windows while running in the
+  background** and **Show on Lock screen**. Without them the block screen
+  cannot appear; Control then sends the phone Home instead and says so.
+- **Battery saver: No restrictions**. Lock Control in Recents too.
+
 Everything else Control needs, such as notifications, steps or location, is
 asked for when a feature needs it.
 
@@ -121,10 +130,8 @@ Obtainium and AppVerifier can check it for you, or with the Android SDK:
 
 | | | |
 | :---: | :---: | :---: |
-| <img src="docs/screenshots/01_blocks.png" width="250" alt="Blocks"><br>Blocks and focus | <img src="docs/screenshots/02_habits.png" width="250" alt="Habits"><br>Habits and your garden | <img src="docs/screenshots/03_habit_detail.png" width="250" alt="Habit detail"><br>Streaks and weekly progress |
-| <img src="docs/screenshots/04_todos.png" width="250" alt="Todos"><br>Todos by day | <img src="docs/screenshots/05_notes.png" width="250" alt="Notes"><br>Notes | <img src="docs/screenshots/06_money.png" width="250" alt="Money"><br>Money, month by month |
-| <img src="docs/screenshots/07_money_stats.png" width="250" alt="Money stats"><br>Where the money went | <img src="docs/screenshots/08_insights.png" width="250" alt="Insights"><br>Screen time insights | <img src="docs/screenshots/09_drawer.png" width="250" alt="Navigation drawer"><br>Everything a tap away |
-| <img src="docs/screenshots/10_dark.png" width="250" alt="Dark theme"><br>Black and pitch-black themes | <img src="docs/screenshots/11_privacy.png" width="250" alt="Privacy policy"><br>Privacy policy in the app | <img src="docs/screenshots/12_about.png" width="250" alt="About"><br>About, and the developer's GitHub |
+| <img src="docs/screenshots/01_blocks.png" width="250" alt="Blocks"><br>Blocks and focus | <img src="docs/screenshots/02_insights.png" width="250" alt="Insights"><br>Screen time insights | <img src="docs/screenshots/03_drawer.png" width="250" alt="Navigation drawer"><br>Everything a tap away |
+| <img src="docs/screenshots/04_dark.png" width="250" alt="Dark theme"><br>Black and pitch-black themes | <img src="docs/screenshots/05_privacy.png" width="250" alt="Privacy policy"><br>Privacy policy in the app | <img src="docs/screenshots/06_about.png" width="250" alt="About"><br>About, and the developer's GitHub |
 
 ---
 
@@ -178,8 +185,12 @@ Implemented on Android; not yet tested on a physical device:
   is stronger launchable-app blocking, excluding essential system components
   and current phone safety flows. A category exclusion only exempts that rule's
   category match: explicit app blocks and other rules still apply.
-- **Steps** from the hardware step counter, with a daily baseline that survives
-  reboots.
+- **Steps** from the hardware step counter. The accessibility service listens
+  all day, so the day is split at midnight from the last step before it, steps
+  walked with Control closed count, and a reboot mid-day keeps what was
+  already walked. When steps are all a rule still needs, Android unlocks it on
+  its own the moment the target is reached, without opening Control, and the
+  block screen shows the count as it climbs.
 - **Shortcut channels** fired by NFC tag, QR code, home-screen shortcut, or an
   automation app, with a repeat count.
 - **Locks**: password, or timed for 24h to a year. A timed lock refuses the
@@ -237,55 +248,7 @@ Implemented on Android; not yet tested on a physical device:
 - **Editing**: tapping a block card opens it. A locked block opens too, with
   cosmetic edits and permitted tightening, but no weakening of active locks.
 - **Block icons** from the bundled set in `assets/icons`.
-- **Habits**: track things done once a day (check), counted in units (count,
-  e.g. 8 glasses), or timed (timer, keeps running with the app closed and
-  splits a run across midnight). Each habit has a name, description, icon,
-  colour, due weekdays and any number of reminders. Cards show a tile grid of
-  recent weeks, the current and best streak, and the 30-day completion rate;
-  the detail sheet adds a Week / Month / Year progress box (a bar per day, or
-  per month for a year, filled toward that day's or month's goal, with the
-  period's goal, amount completed and completion share, and arrows to step
-  back through earlier periods) and a GitHub-style history: a column per
-  week back to the habit's first day, scrolling sideways from the latest,
-  shaded by how much of each day was done. Tapping any past day selects it
-  for logging just below, which is how a missed day gets filled in. The
-  Habits page picks its day from the same month strip as Todos, with a thin
-  bar under each date for how much of it was done; any day up to today can
-  be picked, tomorrow cannot. A day off never breaks a streak. Days done climb a rank ladder
-  (Seed to Old growth), drawn: a compact card on the Habits page shows the
-  plant swaying and growing a little with every check-in, and opens a sheet
-  with the full scene, the pace and a projected date for the next stage, the
-  journey with the day each stage was reached, and how growth works. A new
-  stage is celebrated once. Nothing ever wilts: a missed day slows growth but
-  never takes it back. A habit's history starts the day it was created: days
-  before it cannot be logged, and it is not due on them. Sixteen colours. Reminders are native alarms, on
-  the minute when exact timing is allowed, that re-arm themselves, survive
-  reboots, and stay quiet once the habit is done that day.
-- **Todos**, ported from Hushroom: each todo is due on a day or has no due
-  date. A day shows what is overdue (in red), due, upcoming, undated, and
-  finished on it; unfinished todos carry forward as overdue, and one finished
-  after its day is marked late. A month date strip moves between days, a bar
-  shows the day's progress, and the composer adds todos one after another.
-  Swipe a todo left to edit or delete it; tap it for its steps, which tick
-  the todo off when all are done (and are all ticked when it is). The drawer
-  counts what is still open today.
-- **Notes**, ported from Hushroom: rich text (bold, italic, underline,
-  strikethrough, three heading sizes, checklists, bullet and numbered lists,
-  text colour) in a full-screen editor that saves as you type and discards
-  a note left empty. The list is searchable, pinned first; swipe right to
-  pin, left to delete. Todos and notes also show up in the top search.
-- **Money**, ported from Productivity Island: a month-by-month income and
-  expense log in any of 44 currencies. Each month opens on the balance the
-  last one closed on (brought forward) and shows its surplus or deficit,
-  income against spending, and the entries in expense and income lists.
-  Stats has the savings rate, a donut per side by category, a year of daily
-  spending as a scrollable heatmap (days money came in are framed; tap one
-  for what happened that day, or to add to it), and where the month's money
-  went. Manage gathers investments (expenses filed under Investment, with
-  any returns), budgets over any range of days, optionally for one category,
-  and money lent or borrowed, settled with a tap. Deletes can be undone from
-  the snackbar.
-- **App lock**, ported from Productivity Island: a PIN of 4 to 12 digits in
+- **App lock**: a PIN of 4 to 12 digits in
   front of any pages you choose (everything but Settings, which holds the
   PIN's own controls, and asks for it before they change). A locked page is
   not built at all: it shows a number pad, opens on the digit that completes
@@ -311,7 +274,7 @@ Implemented on Android; not yet tested on a physical device:
   with a button for each screen, and brings them back if you return with the
   switch still off.
 - **Navigation** laid out like Gmail: a floating search bar (menu, search
-  across rules, habits and pages, and a status avatar that opens Settings), a
+  across rules and pages, and a status avatar that opens Settings), a
   modal drawer listing pages with live counts, and a
   Compose-style action button that shrinks while scrolling. Wide screens get a
   rail with the menu and action at its head, expanding in place.
@@ -425,7 +388,7 @@ Control needs several system-level grants. The app walks through each one in
 | **Physical activity** | Prompted when a steps condition is created | The hardware step counter. |
 | **Location** | Prompted when a place block is created | Place check-in. Fine location; a coarse fix fails closed. |
 | **Device admin** | Settings, Uninstall protection | Adds a confirmation step before uninstall. Weak on its own; see below. |
-| **Device owner** (optional) | Settings, Uninstall-proof setup | Stronger OS-level uninstall and configuration restrictions, not protection against every privileged bypass. |
+| **Device owner** (optional) | Settings, Device owner setup | Stronger OS-level uninstall and configuration restrictions, not protection against every privileged bypass. |
 
 On Android 13 and later, an app installed from outside an app store has to be
 allowed *restricted settings* before its accessibility service can be turned
@@ -437,19 +400,24 @@ detects such an install and shows the steps; see
 
 Device owner is the strongest tier, but not bypass-proof. It is optional and
 requires deliberate provisioning, not an ordinary permission prompt. Android only
-accepts the command on a device with **no Google or other accounts added**, so
-provisioning usually means a factory reset first. The in-app flow reads
-`isProvisioningAllowed`, which is the same check the system runs, and tells you
-whether the command will be accepted before you go near a reset.
+accepts the command while **no accounts and no other users** are on the device.
+That does not mean a factory reset: sign out of every account in Settings >
+Accounts for a minute (and remove guest users, work profiles, and on Xiaomi
+Second space and Dual apps), run the command, then sign back in.
 
-Once the device is account-free, with USB or wireless debugging on:
+On **Xiaomi, Redmi and POCO** the command fails with `Calling identity is not
+authorized` until **Developer options > USB debugging (Security settings)** is
+on as well as USB debugging. Turn it on before signing out of the Mi account,
+which it asks for.
+
+Then, with USB or wireless debugging on:
 
 ```bash
 adb shell dpm set-device-owner com.rkprince.control/.enforcement.ControlDeviceAdminReceiver
 ```
 
 The app shows the exact component string for your build under
-**Settings, Uninstall-proof setup**. To release device owner later:
+**Settings, Device owner setup**. To release device owner later:
 
 ```bash
 adb shell dpm remove-active-admin com.rkprince.control/.enforcement.ControlDeviceAdminReceiver
@@ -471,10 +439,10 @@ and why wireless debugging is the route that works the same on every make.
 control/
 ├── lib/                          Flutter app
 │   ├── main.dart                 Entry point, theme wiring, HomeShell
-│   ├── data/                     Local store, block codec, focus sessions, habits, todos, notes, money, page lock, password hashing
+│   ├── data/                     Local store, block codec, focus sessions, page lock, password hashing
 │   ├── platform/                 MethodChannel seam. Ships plans/rules down, reads measurements up.
 │   ├── state/                    ControlStore. Drives the engine, publishes plans.
-│   └── ui/                       Blocks, Habits, Todos, Notes, Money, Insights, Settings, page lock, navigation shell, sheets, theme
+│   └── ui/                       Blocks, Insights, Settings, page lock, navigation shell, sheets, theme
 │
 ├── packages/control_core/        Pure Dart rule engine. No Flutter, no dart:io.
 │   ├── lib/src/engine.dart       Evaluates blocks into plans
@@ -490,10 +458,10 @@ control/
 │   │                             device admin, tamper guard and rules, web rules, boot receiver
 │   ├── insights/                 Usage stats, installed apps, steps, location
 │   ├── shortcuts/                NFC / QR / shortcut / automation triggers
-│   └── surface/                  Widget, Quick Settings tile, weekly report, habit reminders, summary store
+│   └── surface/                  Widget, Quick Settings tile, weekly report, focus timer, summary store
 │
-├── android/app/src/test/kotlin/  JVM tests: TamperRules, WebRules, UsageMath, PlanCodec, HabitReminders
-├── test/                         Flutter tests: codec, editor, focus, habits, persistence, goldens
+├── android/app/src/test/kotlin/  JVM tests: TamperRules, WebRules, UsageMath, PlanCodec, StepDay, StepUnlockRules
+├── test/                         Flutter tests: codec, editor, focus, steps, persistence, goldens
 │   └── screenshots_test.dart     Makes the README screenshots (off unless SCREENSHOTS=1)
 ├── docs/screenshots/             The README screenshots
 ├── .github/workflows/release.yml Signed APKs and a draft release for each version tag
@@ -559,7 +527,7 @@ expired allowances are evaluated using the current enforcement clock.
 
 The service, block screen and boot receiver support Direct Boot. Native rules,
 the hard-mode flag and the clock live in device-protected storage, available
-before first unlock. Passwords and habit history remain in credential-protected
+before first unlock. Passwords and Flutter state remain in credential-protected
 storage. Older installations migrate the native preferences automatically after
 unlock. System apps, emergency/phone roles and unknown safety states are never
 shielded before first unlock, even by explicit app rules.
@@ -622,10 +590,13 @@ ordinary menu entry. The rules now live in a pure object with
 [JVM tests](android/app/src/test/kotlin/com/rkprince/control/enforcement/TamperRulesTest.kt)
 pinning both what must be closed and what must be left alone.
 
-**Device owner** provisioning has a guided flow in Settings, "Uninstall-proof
-setup". It reads `isProvisioningAllowed`, which is the same precondition check
-the system runs, so it can say whether the command will be accepted before the
-user goes near a factory reset. Alongside existing owner restrictions, API 28+
+**Device owner** provisioning has a guided flow in Settings, "Device owner
+setup". It deliberately does not call `isProvisioningAllowed`: that answers for
+the setup wizard and says no on every phone past setup, which used to send
+people to a factory reset they did not need. The sheet lists what the adb
+command really checks (accounts, other users, Xiaomi's extra switch) with a
+button to each screen, and maps each error the command can print to its fix.
+Alongside existing owner restrictions, API 28+
 adds `DISALLOW_CONFIG_DATE_TIME` to restrict date/time configuration. It is an
 additional OS guard, not a trusted external clock.
 
@@ -693,8 +664,8 @@ skipping locks or allowances. Flutter synchronizes its
 [`TamperResistantClock`](packages/control_core/lib/src/clock.dart) anchor on refresh
 so Flutter and native enforcement use the same basis across process restarts.
 Step and shortcut day boundaries use that same clock. Flutter discards stale
-daily measurements before publishing across midnight, so yesterday's completed
-habits cannot silently consume the next day's allowance.
+daily measurements before publishing across midnight, so yesterday's steps or
+focus cannot silently consume the next day's allowance.
 
 After a reboot, elapsed time cannot bridge the previous boot. The fallback uses
 wall time with a persisted high-water floor: it resists rollback below that
@@ -719,18 +690,13 @@ The tile is read-only by design. A tile that could switch blocking off would be
 a bypass sitting in the notification shade, reachable from the lock screen,
 which is the opposite of the point.
 
-Habit reminders work the same way. Dart hands every reminder to
-[`HabitReminders`](android/app/src/main/kotlin/com/rkprince/control/surface/HabitReminders.kt)
-with its wording already written and the last day its habit was finished. Each
-alarm covers only its next due day and re-arms itself when it fires.
-
 ### Notifications, alarms and the foreground service
 
 Everything that reaches the user outside the app ends in a notification, so
 the state is checked rather than assumed:
 
 - **Permission.** `POST_NOTIFICATIONS` is asked for when it is first needed
-  (weekly report, a habit reminder, the first focus session). Settings >
+  (weekly report, the first focus session). Settings >
   Access & permissions shows whether notifications are actually on; its fix
   shows the prompt while Android still will, and opens the app's notification
   settings once it will not. The weekly report card, the reminder editor and
@@ -774,15 +740,11 @@ Navigation follows Gmail. On compact layouts every page opens under a floating
 M3 `SearchBar` (menu, search, status avatar) that hides on scroll down and
 returns on scroll up; the menu opens a modal drawer with every page and its
 live count, then Settings, About, the privacy policy and terms of use,
-Hushroom and Support me. The page action (New block, New habit) is an extended FAB
+Hushroom and Support me. The page action (New block) is an extended FAB
 that collapses to its icon while scrolling. At widths >= 840 logical pixels a
 `NavigationRail` carries the menu and action at its head and expands in place.
 Back from any other page returns to Blocks before leaving the app. Pages retain
 their scroll positions, and inactive pages pause tickers.
-
-Each of the sixteen habit colours is a muted seed run through the `fidelity`
-scheme variant, which keeps its own colourfulness, so grey stays grey and sand
-stays sand in light, black, and pitch black alike.
 
 Every bottom sheet shares one chrome: a grabber, then a header row whose
 actions sit in rounded, tonal pills inset from the sheet's corners. The way
@@ -948,18 +910,15 @@ No physical-device testing has been performed yet. On a test device, verify:
 | Persisted state shape | `lib/data/block_codec.dart`, `lib/data/local_store.dart`, `test/persistence_test.dart` |
 | Theme, colours, type | `lib/ui/theme.dart` |
 | Navigation shell, drawer, search | `lib/main.dart`, `lib/ui/navigation.dart` |
-| Habit streaks, ranks, persistence | `lib/data/habits.dart`, `test/habits_test.dart` |
-| Todo sections, overdue and steps | `lib/data/todos.dart`, `test/todos_notes_test.dart` |
-| Note editor (flutter_quill) | `lib/ui/note_editor.dart` |
 | About page (version, developer, GitHub) | `lib/ui/about_page.dart` |
 | Privacy policy and terms | `lib/data/legal.dart` (in the app) and `PRIVACY.md`, `TERMS.md` (here); keep them in step |
 | What the permission dialogs say | `lib/ui/disclosures.dart` |
 | Restricted-settings steps for downloaded installs | `lib/ui/restricted_settings.dart`, `installInfo` in `ControlBridge.kt` |
 | README screenshots | `test/screenshots_test.dart`, `test/support/preview_store.dart` |
 | Release builds and signing | `.github/workflows/release.yml`, `android/app/build.gradle.kts` |
-| Money totals, budgets, loans, currencies | `lib/data/money.dart`, `test/money_test.dart` |
 | Which pages the PIN can lock | `lockableDestinations` in `lib/ui/page_lock.dart` |
-| Habit reminders | `android/.../surface/HabitReminders.kt` and `HabitRemindersTest.kt` |
+| How steps are counted and split by day | `android/.../insights/StepsReader.kt` and `StepDayTest.kt` |
+| When walking unlocks a rule natively | `android/.../enforcement/StepUnlocks.kt`, `StepUnlockRulesTest.kt`, `_stepGates` in `lib/state/control_store.dart` |
 
 Keep Dart and native persisted-rule semantics aligned. Schedule, category,
 exclusion, allowance-expiry and clock changes need coverage on both sides;
@@ -972,8 +931,8 @@ native enforcement must not depend on a live Flutter isolate.
 Not built yet, in rough priority order:
 
 1. **Headless condition refresh.** Refresh sensor-dependent Dart decisions
-   without opening Flutter. Recurring schedules and allowance expiry already
-   evaluate natively while the accessibility service runs.
+   without opening Flutter. Recurring schedules, allowance expiry and steps
+   already evaluate natively while the accessibility service runs.
 2. **Health Connect.** Workout and mindfulness conditions, and steps aggregated
    across fitness apps rather than read from one sensor.
 3. **Foreground service for the focus timer.** Sessions survive the process

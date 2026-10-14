@@ -1,6 +1,7 @@
 import 'package:control_core/control_core.dart';
 import 'package:flutter/material.dart';
 
+import '../data/descriptions.dart';
 import '../data/legal.dart';
 import '../main.dart';
 import '../platform/platform_models.dart';
@@ -137,9 +138,11 @@ class SettingsPage extends StatelessWidget {
                 icon: Icons.directions_walk_rounded,
                 label: 'Steps',
                 granted: store.stepsStatus.usable,
-                subtitle: store.stepsStatus.available
-                    ? null
-                    : 'No step counter on this device',
+                subtitle: !store.stepsStatus.available
+                    ? 'No step counter on this device'
+                    : store.stepsStatus.usable
+                    ? '${formatCount(store.signals.stepsToday)} steps today'
+                    : null,
                 onTap: store.requestStepsPermission,
               ),
               Divider(height: 1, color: colors.divider),
@@ -161,9 +164,9 @@ class SettingsPage extends StatelessWidget {
                 icon: Icons.notifications_none_rounded,
                 label: 'Notifications',
                 subtitle: store.notifications.enabled
-                    ? 'Habit reminders, the weekly report and the focus timer'
-                    : 'Off, so reminders, the weekly report and the focus '
-                          'timer cannot reach you',
+                    ? 'The weekly report and the focus timer'
+                    : 'Off, so the weekly report and the focus timer cannot '
+                          'reach you',
                 granted: store.notifications.enabled,
                 onTap: store.fixNotifications,
               ),
@@ -192,6 +195,53 @@ class SettingsPage extends StatelessWidget {
           'uninstall Control. This processing happens locally on your device.',
         ),
         const SizedBox(height: 24),
+
+        if (store.installInfo.isXiaomi) ...[
+          const SectionLabel('Keep blocking on (Xiaomi)'),
+          ControlCard(
+            padding: const EdgeInsets.symmetric(horizontal: 18),
+            child: Column(
+              children: [
+                _Row(
+                  icon: Icons.restart_alt_rounded,
+                  label: 'Autostart',
+                  value: 'Turn on for Control',
+                  onTap: () => store.openSystemScreen(SystemScreen.autostart),
+                ),
+                Divider(height: 1, color: colors.divider),
+                _Row(
+                  icon: Icons.picture_in_picture_alt_outlined,
+                  iconColor: store.shieldFallbackAt == null
+                      ? null
+                      : colors.medium,
+                  label: 'Pop-up windows',
+                  value: 'Allow both pop-up switches',
+                  onTap: () {
+                    store.dismissShieldFallback();
+                    store.openSystemScreen(SystemScreen.otherPermissions);
+                  },
+                ),
+                Divider(height: 1, color: colors.divider),
+                _Row(
+                  icon: Icons.battery_saver_outlined,
+                  label: 'Battery saver',
+                  value: 'Set to No restrictions',
+                  onTap: () => store.openSystemScreen(SystemScreen.battery),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+          const _Note(
+            'MIUI and HyperOS switch App blocking off when Control is cleared '
+            'from Recents without Autostart, and only let the block screen '
+            'appear with Display pop-up windows while running in the '
+            'background and Show on Lock screen allowed, both under Other '
+            'permissions. Also lock Control in Recents: open Recents, '
+            'long-press Control, tap the lock.',
+          ),
+          const SizedBox(height: 24),
+        ],
 
         const SectionLabel('App lock'),
         const AppLockCard(),
@@ -853,7 +903,10 @@ class _NotificationsOff extends StatelessWidget {
         Icon(Icons.notifications_off_outlined, size: 20, color: colors.medium),
         const SizedBox(width: 10),
         Expanded(
-          child: Text(text, style: TextStyle(color: colors.medium, height: 1.35)),
+          child: Text(
+            text,
+            style: TextStyle(color: colors.medium, height: 1.35),
+          ),
         ),
         TextButton(onPressed: onFix, child: const Text('Turn on')),
       ],

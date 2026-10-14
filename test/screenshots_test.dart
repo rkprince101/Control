@@ -1,11 +1,7 @@
 import 'dart:io';
 import 'dart:ui' as ui;
 
-import 'package:control/data/habits.dart';
 import 'package:control/main.dart';
-import 'package:control/ui/habit_sheets.dart';
-import 'package:control/ui/habits_page.dart';
-import 'package:control/ui/money_page.dart';
 import 'package:control/ui/theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -94,80 +90,28 @@ void main() {
     await shoot(tester, '01_blocks');
   });
 
-  testWidgets('habits', skip: skip, (tester) async {
-    await host(tester);
-    await goTo(tester, 'Habits');
-    await shoot(tester, '02_habits');
-  });
-
-  testWidgets('habit detail', skip: skip, (tester) async {
-    await host(tester);
-    await goTo(tester, 'Habits');
-    final habit = store.habits.firstWhere((h) => h.kind == HabitKind.count);
-    HabitDetailSheet.show(tester.element(find.byType(HabitsPage)), habit);
-    await tester.pumpAndSettle();
-    await shoot(tester, '03_habit_detail');
-  });
-
-  testWidgets('todos', skip: skip, (tester) async {
-    await host(tester);
-    await goTo(tester, 'Todos');
-    await shoot(tester, '04_todos');
-  });
-
-  testWidgets('notes', skip: skip, (tester) async {
-    await host(tester);
-    await goTo(tester, 'Notes');
-    await shoot(tester, '05_notes');
-  });
-
-  testWidgets('money', skip: skip, (tester) async {
-    await host(tester);
-    await goTo(tester, 'Money');
-    await shoot(tester, '06_money');
-  });
-
-  testWidgets('money stats', skip: skip, (tester) async {
-    await host(tester);
-    await goTo(tester, 'Money');
-    await tester.tap(find.bySemanticsLabel('Stats'));
-    await tester.pumpAndSettle();
-    await tester.drag(
-      find
-          .descendant(
-            of: find.byType(MoneyPage),
-            matching: find.byType(Scrollable),
-          )
-          .first,
-      const Offset(0, -300),
-    );
-    await tester.pumpAndSettle();
-    await shoot(tester, '07_money_stats');
-  });
-
   testWidgets('insights', skip: skip, (tester) async {
     await host(tester);
     await goTo(tester, 'Insights');
-    await shoot(tester, '08_insights');
+    await shoot(tester, '02_insights');
   });
 
   testWidgets('drawer', skip: skip, (tester) async {
     await host(tester);
     await tester.tap(find.byTooltip('Open navigation drawer').hitTestable());
     await tester.pumpAndSettle();
-    await shoot(tester, '09_drawer');
+    await shoot(tester, '03_drawer');
   });
 
   testWidgets('dark', skip: skip, (tester) async {
     await host(tester, dark: true);
-    await goTo(tester, 'Habits');
-    await shoot(tester, '10_dark');
+    await shoot(tester, '04_dark');
   });
 
   testWidgets('privacy', skip: skip, (tester) async {
     await host(tester);
     await goTo(tester, 'Privacy policy');
-    await shoot(tester, '11_privacy');
+    await shoot(tester, '05_privacy');
   });
 
   testWidgets('about', skip: skip, (tester) async {
@@ -180,6 +124,6 @@ void main() {
     );
     await host(tester);
     await goTo(tester, 'About');
-    await shoot(tester, '12_about');
+    await shoot(tester, '06_about');
   });
 }

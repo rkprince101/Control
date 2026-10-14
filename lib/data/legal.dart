@@ -87,9 +87,8 @@ const privacyPolicy = LegalDocument(
           'screen beyond the list above.',
     ]),
     LegalSection('What Control stores', [
-      'Your rules, locks, habits, todos, notes, money entries, budgets, loans, '
-          'focus sessions and settings are saved in the app\'s private storage '
-          'on your phone. A page-lock PIN or block password is stored only as '
+      'Your rules, locks, focus sessions and settings are saved in the '
+          'app\'s private storage on your phone. A page-lock PIN or block password is stored only as '
           'a salted hash, never as itself.',
       'None of it is sent to the developer or anyone else, and none of it is '
           'backed up to a server. Uninstalling Control, or clearing its data '
@@ -113,7 +112,7 @@ const privacyPolicy = LegalDocument(
           'your device. Both can be released from inside the app.',
     ]),
     LegalSection('Notifications', [
-      'The focus timer, habit reminders and the weekly report are '
+      'The focus timer and the weekly report are '
           'notifications made on the phone. No push service is involved.',
     ]),
     LegalSection('Sharing and selling', [
@@ -184,8 +183,8 @@ const termsOfUse = LegalDocument(
           'mode, turning off the Accessibility service, some manufacturers\' '
           'battery settings and future Android versions can get past it or '
           'stop it working.',
-      'Habit, focus and money figures are for your own reflection. They are '
-          'not medical, psychological or financial advice.',
+      'Focus and step figures are for your own reflection. They are not '
+          'medical or psychological advice.',
     ]),
     LegalSection('No warranty', [
       'Control is provided "as is", without warranty of any kind, express or '

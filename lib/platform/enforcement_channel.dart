@@ -20,11 +20,16 @@ class EnforcementChannel {
   /// [details] is keyed by package name, and by domain for the browser guard.
   /// It carries the wording the block screen shows, because only Dart knows the
   /// rules and the screen has to explain itself with the app process dead.
+  ///
+  /// [stepGates] holds, per block, the steps that unlock it with every other
+  /// condition already met. Android mints that allowance itself when the
+  /// target is reached, so walking unlocks apps without opening Control.
   Future<void> applyPlan(
     EnforcementPlan plan, {
     Map<String, Map<String, Object?>>? details,
     Iterable<Block>? blocks,
     Map<String, UnlockGrant> grants = const {},
+    Map<String, int> stepGates = const {},
   }) {
     return _channel.invokeMethod<void>('applyPlan', <String, Object?>{
       'blockedPackages': plan.blockedApps.toList(),
@@ -64,10 +69,46 @@ class EnforcementChannel {
                               .millisecondsSinceEpoch ??
                           0
                     : 0,
+                'stepsTarget': stepGates[block.id] ?? 0,
+                'unlockForMillis': block.blockAgainAfter?.inMilliseconds ?? 0,
               },
         ],
     });
   }
+
+  /// Allowances Android minted on its own when a steps target was reached
+  /// while Flutter was not running.
+  Future<Map<String, UnlockGrant>> nativeGrants() async {
+    final result = await _channel.invokeMethod<Map<Object?, Object?>>(
+      'nativeGrants',
+    );
+    if (result == null) return const {};
+    return {
+      for (final entry in result.entries)
+        if (entry.key is String && entry.value is Map)
+          entry.key! as String: UnlockGrant(
+            grantedAt: DateTime.fromMillisecondsSinceEpoch(
+              ((entry.value! as Map)['grantedAt'] as num).toInt(),
+            ),
+            expiresAt: DateTime.fromMillisecondsSinceEpoch(
+              ((entry.value! as Map)['expiresAt'] as num).toInt(),
+            ),
+          ),
+    };
+  }
+
+  /// When the block screen last could not appear and Android was sent Home
+  /// instead, or null if that has not happened.
+  Future<DateTime?> lastShieldFallback() async {
+    final result = await _channel.invokeMethod<Map<Object?, Object?>>(
+      'shieldHealth',
+    );
+    final millis = (result?['lastFallbackAt'] as num?)?.toInt() ?? 0;
+    return millis <= 0 ? null : DateTime.fromMillisecondsSinceEpoch(millis);
+  }
+
+  Future<void> clearShieldHealth() =>
+      _channel.invokeMethod<void>('clearShieldHealth');
 
   Future<bool> isAccessibilityEnabled() async =>
       await _channel.invokeMethod<bool>('isAccessibilityEnabled') ?? false;
@@ -271,15 +312,13 @@ class EnforcementChannel {
   /// Control's own App info page, where "Allow restricted settings" lives.
   Future<void> openAppInfo() => _channel.invokeMethod<void>('openAppInfo');
 
-  /// Replaces every scheduled habit reminder.
-  ///
-  /// Each entry carries its own wording and the day its habit was last
-  /// finished, because the alarm fires with this isolate dead and a reminder
-  /// for something already done today is just noise.
-  Future<void> setHabitReminders(List<Map<String, Object?>> reminders) =>
-      _channel.invokeMethod<void>('setHabitReminders', <String, Object?>{
-        'reminders': reminders,
-      });
+  /// A system screen a setup step points at. False when no version of it
+  /// exists on this phone.
+  Future<bool> openSystemScreen(SystemScreen screen) async =>
+      await _channel.invokeMethod<bool>('openSystemScreen', <String, Object?>{
+        'screen': screen.name,
+      }) ??
+      false;
 
   // Shortcut channels ---------------------------------------------------------
 

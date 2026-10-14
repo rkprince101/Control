@@ -3,6 +3,10 @@ package com.rkprince.control.enforcement
 import android.accessibilityservice.AccessibilityService
 import android.content.Intent
 import android.content.IntentFilter
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -10,8 +14,11 @@ import android.os.SystemClock
 import android.os.UserManager
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
+import android.widget.Toast
+import com.rkprince.control.R
 import com.rkprince.control.insights.AppCategoryResolver
 import com.rkprince.control.insights.PackageChangeReceiver
+import com.rkprince.control.insights.StepsReader
 
 /** Accessibility is a deterrent, not protection against safe mode or recovery. */
 class ControlAccessibilityService : AccessibilityService() {
@@ -27,6 +34,10 @@ class ControlAccessibilityService : AccessibilityService() {
     private var lastBlockedKey: String? = null
     private var lastBlockedAt = 0L
     private var eventCheckPending = false
+    private var lastFallbackToastAt = 0L
+    private var ticks = 0L
+    private var steps: StepsReader? = null
+    private var stepsListener: SensorEventListener? = null
 
     private val eventCheck = Runnable {
         eventCheckPending = false
@@ -35,6 +46,8 @@ class ControlAccessibilityService : AccessibilityService() {
     private val tick = object : Runnable {
         override fun run() {
             if (!connected) return
+            // Activity recognition can be granted while the service runs.
+            if (ticks++ % STEP_LISTENER_RETRY_TICKS == 0L) listenForSteps()
             checkForeground()
             handler.postDelayed(this, 1000L)
         }
@@ -59,7 +72,45 @@ class ControlAccessibilityService : AccessibilityService() {
             else registerReceiver(it, filter)
         }
         connected = true
+        ticks = 0L
         handler.post(tick)
+    }
+
+    /**
+     * Keeps the step counter's last reading current all day, so the split at
+     * midnight is exact and a steps rule can unlock the moment its target is
+     * reached, with Flutter not running. Batched: the sensor hub holds steps
+     * and hands them over together, which costs next to nothing.
+     */
+    private fun listenForSteps() {
+        if (stepsListener != null) return
+        val reader = steps ?: StepsReader(this).also { steps = it }
+        if (!reader.hasPermission()) return
+        val manager = getSystemService(SensorManager::class.java) ?: return
+        val sensor = manager.getDefaultSensor(Sensor.TYPE_STEP_COUNTER) ?: return
+        val listener = object : SensorEventListener {
+            override fun onSensorChanged(event: SensorEvent) {
+                runCatching { reader.record(event) }
+                    .onFailure { Log.w("ControlA11y", "Could not record steps", it) }
+            }
+
+            override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
+        }
+        val registered = runCatching {
+            manager.registerListener(
+                listener,
+                sensor,
+                SensorManager.SENSOR_DELAY_NORMAL,
+                STEP_BATCH_MICROS,
+            )
+        }.getOrDefault(false)
+        if (registered) stepsListener = listener
+    }
+
+    private fun stopListeningForSteps() {
+        val listener = stepsListener ?: return
+        stepsListener = null
+        runCatching { getSystemService(SensorManager::class.java)?.unregisterListener(listener) }
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -106,7 +157,7 @@ class ControlAccessibilityService : AccessibilityService() {
             }
 
             // Always read now, including callbacks scheduled before a plan edit or time boundary.
-            val plan = planStore.read()
+            val plan = StepUnlocks.apply(this, planStore.read(), now)
             val appCategories = if (plan.rules?.any { it.categories.isNotEmpty() } == true) {
                 categories.categories(foreground)
             } else emptySet()
@@ -148,17 +199,57 @@ class ControlAccessibilityService : AccessibilityService() {
         if (lastBlockedKey == key && now - lastBlockedAt < 600L) return
         lastBlockedKey = key
         lastBlockedAt = now
-        startActivity(Intent(this, BlockOverlayActivity::class.java).apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK or
-                Intent.FLAG_ACTIVITY_NO_ANIMATION or Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS)
-            putExtra(BlockOverlayActivity.EXTRA_PACKAGE, packageName)
-            putExtra(BlockOverlayActivity.EXTRA_DETAIL_KEY, detailKey)
-        })
+        val started = runCatching {
+            startActivity(Intent(this, BlockOverlayActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK or
+                    Intent.FLAG_ACTIVITY_NO_ANIMATION or Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS)
+                putExtra(BlockOverlayActivity.EXTRA_PACKAGE, packageName)
+                putExtra(BlockOverlayActivity.EXTRA_DETAIL_KEY, detailKey)
+            })
+        }.isSuccess
+        if (started) {
+            handler.postDelayed({ verifyShield(packageName) }, SHIELD_CHECK_MS)
+        } else {
+            fallBackToHome(packageName)
+        }
+    }
+
+    /**
+     * The block screen is an activity, and some builds refuse to start one
+     * from the background without saying so: MIUI and HyperOS do unless
+     * "Display pop-up windows while running in the background" is allowed for
+     * Control. When the blocked app is still in front after the screen should
+     * have appeared, Home is used instead, which no build refuses, so a
+     * blocked app is never simply left open.
+     */
+    private fun verifyShield(packageName: String) {
+        if (!connected) return
+        val root = rootInActiveWindow ?: return
+        val foreground = try {
+            root.packageName?.toString()
+        } finally {
+            @Suppress("DEPRECATION")
+            root.recycle()
+        }
+        if (foreground == packageName) fallBackToHome(packageName)
+    }
+
+    private fun fallBackToHome(packageName: String) {
+        performGlobalAction(GLOBAL_ACTION_HOME)
+        ShieldHealth.recordFallback(this)
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastFallbackToastAt < FALLBACK_TOAST_GAP_MS) return
+        lastFallbackToastAt = now
+        val label = runCatching {
+            packageManager.getApplicationLabel(packageManager.getApplicationInfo(packageName, 0))
+        }.getOrDefault(packageName)
+        Toast.makeText(this, getString(R.string.block_fallback_toast, label), Toast.LENGTH_LONG).show()
     }
 
     private fun stopChecks() {
         connected = false
         handler.removeCallbacksAndMessages(null)
+        stopListeningForSteps()
         eventCheckPending = false
         packageReceiver?.let { unregisterReceiver(it) }
         packageReceiver = null
@@ -179,4 +270,14 @@ class ControlAccessibilityService : AccessibilityService() {
     }
 
     override fun onInterrupt() = Unit
+
+    private companion object {
+        /** Let the hub hold steps up to this long before delivering them. */
+        const val STEP_BATCH_MICROS = 10_000_000
+        const val STEP_LISTENER_RETRY_TICKS = 60L
+
+        /** Long enough for a slow phone to draw the block screen. */
+        const val SHIELD_CHECK_MS = 900L
+        const val FALLBACK_TOAST_GAP_MS = 5_000L
+    }
 }

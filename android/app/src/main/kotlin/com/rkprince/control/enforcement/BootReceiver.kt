@@ -4,7 +4,6 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.util.Log
-import com.rkprince.control.surface.HabitReminders
 import com.rkprince.control.surface.WeeklyReport
 
 /**
@@ -25,14 +24,13 @@ class BootReceiver : BroadcastReceiver() {
             Log.i(TAG, "loaded ${plan.rules?.size ?: 0} native rules after ${intent.action}")
         }.onFailure { Log.e(TAG, "Could not restore enforcement inputs", it) }
 
-        // Reminders and the weekly report live in credential-protected
-        // storage, which is still shut at locked boot; the unlocked boot that
-        // follows puts them back. Android drops every alarm on reboot.
+        // The weekly report lives in credential-protected storage, which is
+        // still shut at locked boot; the unlocked boot that follows puts it
+        // back. Android drops every alarm on reboot.
         if (intent.action != Intent.ACTION_LOCKED_BOOT_COMPLETED) {
             runCatching {
-                HabitReminders.rescheduleAll(context)
                 WeeklyReport.restore(context)
-            }.onFailure { Log.e(TAG, "Could not restore reminders and reports", it) }
+            }.onFailure { Log.e(TAG, "Could not restore the weekly report", it) }
         }
     }
 

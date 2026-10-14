@@ -1,25 +1,18 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
-import 'package:flutter_quill/flutter_quill.dart'
-    show FlutterQuillLocalizations;
 
 import 'state/control_store.dart';
 import 'ui/block_editor_sheet.dart';
 import 'ui/blocks_page.dart';
 import 'ui/expressive_progress.dart';
-import 'ui/habit_sheets.dart';
-import 'ui/habits_page.dart';
 import 'ui/insights_page.dart';
-import 'ui/money_page.dart';
-import 'ui/money_sheets.dart';
 import 'ui/navigation.dart';
-import 'ui/note_editor.dart';
-import 'ui/notes_page.dart';
 import 'ui/page_lock.dart';
 import 'ui/restricted_settings.dart';
 import 'ui/settings_page.dart';
 import 'ui/theme.dart';
-import 'ui/todos_page.dart';
 
 void main() {
   runApp(ControlApp(store: ControlStore()));
@@ -47,8 +40,6 @@ class ControlApp extends StatelessWidget {
               pitchBlack: choice == AppThemeChoice.pitchBlack,
             ),
             themeMode: choice.themeMode,
-            // The note editor's toolbar reads its button labels from here.
-            localizationsDelegates: const [FlutterQuillLocalizations.delegate],
             // Above the navigator, so sheets and dialogs follow it too.
             builder: (context, child) => WaveMotionScope(
               motion: store.waveMotion,
@@ -107,21 +98,13 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   bool _fabExtended = true;
   bool _railExtended = false;
 
-  /// True while the todo composer holds the bottom of the screen; the action
-  /// button steps aside for it.
-  bool _composingTodo = false;
-  final _todos = GlobalKey<TodosPageState>();
+  /// Re-reads steps while the app is in front, so a steps rule's progress
+  /// moves as you walk with Control open, and unlocks without a restart.
+  Timer? _liveSteps;
+  static const _liveStepsEvery = Duration(seconds: 20);
 
   late final Map<Destination, Widget> _pages = {
     Destination.blocks: const BlocksPage(),
-    Destination.habits: const HabitsPage(),
-    Destination.todos: TodosPage(
-      key: _todos,
-      onComposingChanged: (composing) =>
-          setState(() => _composingTodo = composing),
-    ),
-    Destination.notes: const NotesPage(),
-    Destination.money: const MoneyPage(),
     Destination.insights: const InsightsPage(),
     Destination.settings: const SettingsPage(),
   };
@@ -133,15 +116,26 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) StoreScope.of(context).init();
     });
+    _startLiveSteps();
   }
 
   @override
   void dispose() {
+    _stopLiveSteps();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 
-  /// Permissions are granted on system settings screens, and habits are done
+  void _startLiveSteps() => _liveSteps ??= Timer.periodic(_liveStepsEvery, (_) {
+    if (mounted) StoreScope.read(context).refreshSteps();
+  });
+
+  void _stopLiveSteps() {
+    _liveSteps?.cancel();
+    _liveSteps = null;
+  }
+
+  /// Permissions are granted on system settings screens, and steps are walked
   /// while the app is closed, so returning to the app is the moment to re-read
   /// everything.
   ///
@@ -149,8 +143,14 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   /// phone up next meets the PIN.
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) _onResume();
-    if (state == AppLifecycleState.paused) StoreScope.read(context).lockPages();
+    if (state == AppLifecycleState.resumed) {
+      _startLiveSteps();
+      _onResume();
+    }
+    if (state == AppLifecycleState.paused) {
+      _stopLiveSteps();
+      StoreScope.read(context).lockPages();
+    }
   }
 
   /// Back from Settings with the switch the user went to turn on still off:
@@ -195,8 +195,9 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   }
 
   _PageAction? get _action {
-    // A locked page offers nothing to do until it is opened.
-    if (StoreScope.read(context).isPageLocked(_destination.name)) {
+    // A locked page offers nothing to do until it is opened. Read with a
+    // subscription, so locking or unlocking the page shows or hides it.
+    if (StoreScope.of(context).isPageLocked(_destination.name)) {
       return null;
     }
     return switch (_destination) {
@@ -205,26 +206,6 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
         label: 'New block',
         onPressed: () => BlockEditorSheet.show(context),
       ),
-      Destination.habits => (
-        icon: Icons.add,
-        label: 'New habit',
-        onPressed: () => HabitEditorSheet.show(context),
-      ),
-      Destination.todos => (
-        icon: Icons.add_task_rounded,
-        label: 'New todo',
-        onPressed: () => _todos.currentState?.startAdding(),
-      ),
-      Destination.notes => (
-        icon: Icons.edit_note_rounded,
-        label: 'New note',
-        onPressed: () => NoteEditorScreen.open(context),
-      ),
-      Destination.money => (
-        icon: Icons.add_rounded,
-        label: 'New entry',
-        onPressed: () => EntryEditorSheet.show(context),
-      ),
       Destination.insights || Destination.settings => null,
     };
   }
@@ -232,12 +213,6 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     final wide = MediaQuery.sizeOf(context).width >= 840;
-    // Rebuilt when a page locks or unlocks, which shows or hides the action.
-    // Locking the todos page mid-sentence throws its composer away, and the
-    // page cannot say so from inside its own disposal.
-    if (StoreScope.of(context).isPageLocked(Destination.todos.name)) {
-      _composingTodo = false;
-    }
     final action = _action;
 
     final content = NotificationListener<UserScrollNotification>(
@@ -300,7 +275,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
                   )
                 : content,
           ),
-          floatingActionButton: wide || action == null || _composingTodo
+          floatingActionButton: wide || action == null
               ? null
               : CollapsingFab(
                   extended: _fabExtended,

@@ -112,46 +112,18 @@ void main() {
 
     await tester.tap(find.byTooltip('Open navigation drawer').hitTestable());
     await tester.pumpAndSettle();
-    for (final label in ['Blocks', 'Habits', 'Insights', 'Settings']) {
+    for (final label in ['Blocks', 'Insights', 'Settings']) {
       expect(find.bySemanticsLabel(label), findsOneWidget);
+    }
+    for (final removed in ['Habits', 'Todos', 'Notes', 'Money']) {
+      expect(find.bySemanticsLabel(removed), findsNothing);
     }
     expect(find.text('Create new'), findsNothing);
 
-    await tester.tap(find.bySemanticsLabel('Habits'));
+    await tester.tap(find.bySemanticsLabel('Insights'));
     await tester.pumpAndSettle();
     expect(find.byType(Drawer), findsNothing);
-    expect(find.text('Build rhythm'), findsOneWidget);
-  });
-
-  testWidgets('a habit is created from the Habits page and ticked off', (
-    tester,
-  ) async {
-    await _pumpApp(tester);
-    await _goTo(tester, 'Habits');
-    expect(find.text('No habits yet'), findsOneWidget);
-
-    await tester.tap(find.text('New habit'));
-    await tester.pumpAndSettle();
-    await tester.enterText(
-      find.widgetWithText(TextField, 'Habit name'),
-      'Stretch',
-    );
-    // Save enables on the rebuild that follows typing.
-    await tester.pump();
-    await tester.tap(find.text('Save'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('Habit name'), findsNothing, reason: 'editor closed');
-    expect(find.text('Stretch'), findsOneWidget);
-    expect(find.text('0 of 1 done'), findsOneWidget);
-    await tester.ensureVisible(find.byTooltip('Mark Stretch done'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('Mark Stretch done'));
-    await tester.pumpAndSettle();
-    await tester.drag(_pageScroll, const Offset(0, 600));
-    await tester.pumpAndSettle();
-    expect(find.text('All done. Nice.'), findsOneWidget);
-    expect(find.byTooltip('Mark Stretch not done'), findsOneWidget);
+    expect(find.text('Your time'), findsOneWidget);
   });
 
   testWidgets('search jumps straight to a page', (tester) async {
@@ -161,7 +133,7 @@ void main() {
     await tester.tap(find.byType(SearchBar).hitTestable());
     await tester.pumpAndSettle();
     await tester.enterText(
-      find.widgetWithText(TextField, 'Search rules, habits, todos and notes'),
+      find.widgetWithText(TextField, 'Search rules and pages'),
       'sett',
     );
     await tester.pumpAndSettle();
@@ -171,78 +143,7 @@ void main() {
     expect(find.text('Your setup'), findsOneWidget);
   });
 
-  testWidgets('a todo is written, stays for the next, and is ticked off', (
-    tester,
-  ) async {
-    await _pumpApp(tester);
-    await _goTo(tester, 'Todos');
-    expect(find.text('No todos for today'), findsOneWidget);
-
-    await tester.tap(find.text('New todo'));
-    await tester.pumpAndSettle();
-    // The composer takes the bottom; the action button steps aside.
-    expect(find.text('New todo'), findsNothing);
-    await tester.enterText(
-      find.widgetWithText(TextField, 'Add a todo'),
-      'Buy milk',
-    );
-    await tester.tap(find.byTooltip('Add todo'));
-    await tester.pumpAndSettle();
-    // Still open, ready for the next one.
-    expect(find.widgetWithText(TextField, 'Add a todo'), findsOneWidget);
-    expect(find.text('Buy milk'), findsOneWidget);
-    expect(find.text('TODAY'), findsOneWidget);
-
-    await tester.tap(find.byTooltip('Mark Buy milk done'));
-    await tester.pumpAndSettle();
-    expect(find.text('COMPLETED'), findsOneWidget);
-    expect(find.byTooltip('Mark Buy milk not done'), findsOneWidget);
-  });
-
-  testWidgets('a note is written in the editor and shows in the list', (
-    tester,
-  ) async {
-    await _pumpApp(tester);
-    await _goTo(tester, 'Notes');
-    expect(find.text('No notes yet'), findsOneWidget);
-
-    await tester.tap(find.text('New note'));
-    await tester.pumpAndSettle();
-    expect(find.text('Done'), findsOneWidget);
-    await tester.enterText(find.widgetWithText(TextField, 'Title'), 'Ideas');
-    await tester.pump(const Duration(milliseconds: 700));
-    await tester.tap(find.text('Done'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('Ideas'), findsOneWidget);
-    expect(find.text('No notes yet'), findsNothing);
-  });
-
-  testWidgets('money: an expense is logged and lands in the month', (
-    tester,
-  ) async {
-    await _pumpApp(tester);
-    await _goTo(tester, 'Money');
-    expect(find.text('Nothing tracked yet'), findsOneWidget);
-
-    await tester.tap(find.text('New entry'));
-    await tester.pumpAndSettle();
-    await tester.enterText(find.widgetWithText(TextField, '0'), '250');
-    await tester.enterText(
-      find.widgetWithText(TextField, 'Note (optional)'),
-      'Lunch',
-    );
-    await tester.pump();
-    await tester.tap(find.text('Save'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('Lunch'), findsOneWidget);
-    // On its row, and as the month's balance.
-    expect(find.text('-\$250'), findsNWidgets(2));
-    expect(find.text('Deficit'), findsOneWidget);
-  });
-
-  testWidgets('app lock: a PIN guards Money until entered, and again after '
+  testWidgets('app lock: a PIN guards Insights until entered, and again after '
       'leaving the app', (tester) async {
     await _pumpApp(tester);
     await _goTo(tester, 'Settings');
@@ -264,26 +165,26 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('PIN is set'), findsOneWidget);
 
-    final moneySwitch = find.descendant(
-      of: find.ancestor(of: find.text('Money'), matching: find.byType(Row)),
+    final insightsSwitch = find.descendant(
+      of: find.ancestor(of: find.text('Insights'), matching: find.byType(Row)),
       matching: find.byType(Switch),
     );
-    await tester.ensureVisible(moneySwitch);
-    await tester.tap(moneySwitch);
+    await tester.ensureVisible(insightsSwitch);
+    await tester.tap(insightsSwitch);
     await tester.pumpAndSettle();
 
     // Back up, for the search bar and its menu.
     await tester.drag(_pageScroll, const Offset(0, 300));
     await tester.pumpAndSettle();
-    await _goTo(tester, 'Money');
-    expect(find.text('Money is locked'), findsOneWidget);
-    expect(find.text('New entry'), findsNothing);
+    await _goTo(tester, 'Insights');
+    expect(find.text('Insights is locked'), findsOneWidget);
+    expect(find.text('Your time'), findsNothing);
     for (final digit in ['1', '3', '5', '7']) {
       await tester.tap(find.bySemanticsLabel(digit));
       await tester.pump();
     }
     await tester.pumpAndSettle();
-    expect(find.text('Nothing tracked yet'), findsOneWidget);
+    expect(find.text('Your time'), findsOneWidget);
 
     // Away and back: the page asks again.
     for (final state in [
@@ -297,6 +198,6 @@ void main() {
       tester.binding.handleAppLifecycleStateChanged(state);
     }
     await tester.pumpAndSettle();
-    expect(find.text('Money is locked'), findsOneWidget);
+    expect(find.text('Insights is locked'), findsOneWidget);
   });
 }

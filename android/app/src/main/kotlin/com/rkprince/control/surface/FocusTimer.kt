@@ -225,7 +225,6 @@ class AlarmRestoreReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (!handles(intent.action)) return
         runCatching {
-            HabitReminders.rescheduleAll(context)
             WeeklyReport.restore(context)
         }.onFailure { Log.e("ControlAlarms", "Could not restore alarms", it) }
     }

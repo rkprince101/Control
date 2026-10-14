@@ -8,18 +8,21 @@ import 'package:flutter/foundation.dart';
 /// and a block screen that says something else is the kind of mismatch that
 /// makes people stop trusting the numbers.
 String describeCondition(UnlockCondition condition) => switch (condition) {
-      StepsCondition() => '${_thousands(condition.targetSteps)} steps',
-      WorkoutCondition() => '${condition.target.inMinutes} min workout',
-      MeditateCondition() => '${condition.target.inMinutes} min meditation',
-      AppTimeCondition() => '${condition.target.inMinutes} min in '
-          '${condition.apps.length} app${condition.apps.length == 1 ? '' : 's'}',
-      FocusCondition() => '${formatSpan(condition.target)} focused',
-      PlaceCheckInCondition() => 'check in at ${condition.zone.name} '
-          '${describeWindow(condition.window)}',
-      ShortcutCondition() => condition.requiredCount > 1
-          ? '${condition.channel} x${condition.requiredCount}'
-          : condition.channel,
-    };
+  StepsCondition() => '${formatCount(condition.targetSteps)} steps',
+  WorkoutCondition() => '${condition.target.inMinutes} min workout',
+  MeditateCondition() => '${condition.target.inMinutes} min meditation',
+  AppTimeCondition() =>
+    '${condition.target.inMinutes} min in '
+        '${condition.apps.length} app${condition.apps.length == 1 ? '' : 's'}',
+  FocusCondition() => '${formatSpan(condition.target)} focused',
+  PlaceCheckInCondition() =>
+    'check in at ${condition.zone.name} '
+        '${describeWindow(condition.window)}',
+  ShortcutCondition() =>
+    condition.requiredCount > 1
+        ? '${condition.channel} x${condition.requiredCount}'
+        : condition.channel,
+};
 
 /// What the user still has to do, phrased as an instruction rather than a
 /// label: this is what the block screen shows.
@@ -65,7 +68,8 @@ String formatSpan(Duration duration) {
   return '${hours}h ${minutes}m';
 }
 
-String _thousands(int value) {
+/// `5,000`: the grouping every step count is shown with.
+String formatCount(int value) {
   final digits = value.toString();
   final buffer = StringBuffer();
 

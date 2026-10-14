@@ -4,6 +4,7 @@
 
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:control_core/control_core.dart';
 import 'package:flutter/foundation.dart';
@@ -11,12 +12,8 @@ import 'package:flutter/services.dart';
 
 import '../data/descriptions.dart';
 import '../data/focus.dart';
-import '../data/habits.dart';
 import '../data/local_store.dart';
-import '../data/money.dart';
-import '../data/notes.dart';
 import '../data/page_lock.dart';
-import '../data/todos.dart';
 import '../data/password.dart';
 import '../platform/enforcement_channel.dart';
 import '../platform/platform_models.dart';
@@ -124,6 +121,11 @@ class ControlStore extends ChangeNotifier {
   ProtectionStatus protection = const ProtectionStatus.none();
   NotificationStatus notifications = const NotificationStatus.unknown();
 
+  /// When Android last refused to show the block screen and Control sent the
+  /// phone Home instead. On MIUI and HyperOS that means the pop-up permission
+  /// is off.
+  DateTime? shieldFallbackAt;
+
   /// Today's usage only; shared by enforcement signals and outside summaries.
   UsageSnapshot usage = const UsageSnapshot.empty();
   UsageSnapshot insightsUsage = const UsageSnapshot.empty();
@@ -222,16 +224,6 @@ class ControlStore extends ChangeNotifier {
   static bool hasFocusCondition(Block block) =>
       block.conditions.any((condition) => condition is FocusCondition);
 
-  final List<Habit> _habits = [];
-  List<Habit> get habits => List.unmodifiable(_habits);
-
-  /// Habit id to [dayKey] to amount: units for a count, seconds for a timer.
-  final Map<String, Map<int, int>> _habitLog = {};
-
-  /// The timer habit being timed right now, if any. One at a time, like focus.
-  HabitTimer? habitTimer;
-  Timer? _habitTicker;
-
   /// True when the device clock has been wound back behind time this app has
   /// already seen. Surfaced rather than silently corrected: unexplained
   /// over-blocking reads as a bug, a named warning reads as the product working.
@@ -269,42 +261,7 @@ class ControlStore extends ChangeNotifier {
       ..clear()
       ..addAll(local.loadFocusSessions());
 
-    final knownHabits = _habits.map((habit) => habit.id).toSet();
-    _habits.insertAll(
-      0,
-      local.loadHabits().where((habit) => !knownHabits.contains(habit.id)),
-    );
-    for (final entry in local.loadHabitLog().entries) {
-      _habitLog.putIfAbsent(entry.key, () => entry.value);
-    }
-    habitTimer ??= local.loadHabitTimer();
-    final knownTodos = _todos.map((todo) => todo.id).toSet();
-    _todos.insertAll(
-      0,
-      local.loadTodos().where((todo) => !knownTodos.contains(todo.id)),
-    );
-    final knownNotes = _notes.map((note) => note.id).toSet();
-    _notes.insertAll(
-      0,
-      local.loadNotes().where((note) => !knownNotes.contains(note.id)),
-    );
-    growthStageSeen = local.loadGrowthStageSeen();
-    final knownEntries = _moneyEntries.map((entry) => entry.id).toSet();
-    _moneyEntries.addAll(
-      local.loadMoneyEntries().where((e) => !knownEntries.contains(e.id)),
-    );
-    final knownBudgets = _budgets.map((budget) => budget.id).toSet();
-    _budgets.addAll(
-      local.loadBudgets().where((b) => !knownBudgets.contains(b.id)),
-    );
-    final knownLoans = _loans.map((loan) => loan.id).toSet();
-    _loans.addAll(local.loadLoans().where((l) => !knownLoans.contains(l.id)));
-    if (local.loadCurrency() case final code?) {
-      currency = Currency.byCode(code);
-    }
-    _moneyBook = null;
     pageLock = local.loadPageLock();
-    if (habitTimer != null) _startHabitTicker();
     // Hydrate persisted commitments before yielding: a concurrent add must not
     // save a partial block or grant list over the loaded state.
     await _refreshClock();
@@ -331,7 +288,6 @@ class ControlStore extends ChangeNotifier {
 
     notifyListeners();
     if (_blocks.length != stored.length) await _persistBlocks();
-    unawaited(_syncHabitReminders());
     await refreshAll();
   }
 
@@ -353,6 +309,11 @@ class ControlStore extends ChangeNotifier {
       notifications = await _channel.notificationStatus();
     } catch (error) {
       debugPrint('control: could not read notification access: $error');
+    }
+    try {
+      shieldFallbackAt = await _channel.lastShieldFallback();
+    } catch (error) {
+      debugPrint('control: could not read block screen health: $error');
     }
 
     // The guard keeps its own copy of the flag so it works with this isolate
@@ -412,6 +373,38 @@ class ControlStore extends ChangeNotifier {
 
     notifyListeners();
     await publish();
+  }
+
+  /// Steps alone, for a live count while the app is open: cheaper than
+  /// [refreshSignals], which re-reads usage too. Only when a rule counts steps.
+  Future<void> refreshSteps() async {
+    if (!stepsStatus.usable || !_blocks.any(_countsSteps)) return;
+    final now = _now();
+    if (_signalsDay != DateTime(now.year, now.month, now.day)) {
+      // A new day resets every daily signal; that is the full refresh's job.
+      await refreshSignals();
+      return;
+    }
+    final steps = await _channel.stepsToday();
+    if (steps == _signals.stepsToday) return;
+    _signals = _signals.copyWith(stepsToday: steps);
+    notifyListeners();
+    await publish();
+  }
+
+  static bool _countsSteps(Block block) =>
+      block.enabled &&
+      block.conditions.any((condition) => condition is StepsCondition);
+
+  /// Clears the block-screen warning once its fix has been looked at.
+  Future<void> dismissShieldFallback() async {
+    shieldFallbackAt = null;
+    notifyListeners();
+    try {
+      await _channel.clearShieldHealth();
+    } catch (error) {
+      debugPrint('control: could not clear block screen health: $error');
+    }
   }
 
   Future<void> setInsightsRange(InsightsRange range) async {
@@ -815,8 +808,7 @@ class ControlStore extends ChangeNotifier {
   /// break. A paused session has nothing to redraw.
   void _updateTicker() {
     final running = runningFocus;
-    final needed =
-        (running != null && !running.isPaused) || focusBreak != null;
+    final needed = (running != null && !running.isPaused) || focusBreak != null;
     if (!needed) {
       _stopTicker();
       return;
@@ -968,481 +960,7 @@ class ControlStore extends ChangeNotifier {
     _disposed = true;
     _insightsGeneration++;
     _stopTicker();
-    _habitTicker?.cancel();
     super.dispose();
-  }
-
-  // Habits -------------------------------------------------------------------
-  //
-  // Habits run on the wall clock, not the protection clock. They are
-  // self-reported and unlock nothing, so there is nothing to defend, and the
-  // day someone ticks off has to be the day on their calendar.
-
-  /// The wall clock habits are logged against. Overridable so previews and
-  /// tests can stand on a fixed day.
-  DateTime wallNow() => DateTime.now();
-
-  Habit? habitById(String id) =>
-      habits.where((habit) => habit.id == id).firstOrNull;
-
-  /// The stored log for a habit, with a running timer's seconds folded in so
-  /// every screen shows the live total.
-  Map<int, int> habitLogFor(String id, {DateTime? now}) {
-    final log = {...?_habitLog[id]};
-    final timer = habitTimer;
-    if (timer != null && timer.habitId == id) {
-      for (final entry in timer.secondsByDay(now ?? wallNow()).entries) {
-        log[entry.key] = (log[entry.key] ?? 0) + entry.value;
-      }
-    }
-    return log;
-  }
-
-  HabitStats habitStats(Habit habit, {DateTime? now}) {
-    final moment = now ?? wallNow();
-    return HabitStats.of(habit, habitLogFor(habit.id, now: moment), moment);
-  }
-
-  /// Days any habit was done. The rank ladder climbs on these.
-  int get habitPoints =>
-      habits.fold(0, (total, habit) => total + habitStats(habit).totalDone);
-
-  /// The garden: stage, progress, dates reached, pace. Grows from the same
-  /// check-ins as [habitPoints].
-  HabitGrowth get habitGrowth =>
-      HabitGrowth.of(habits.map(habitStats), wallNow());
-
-  // Todos --------------------------------------------------------------------
-  //
-  // Like habits, todos run on the wall clock: a todo is due on the day on the
-  // user's calendar. Each change lands in memory before the first await.
-
-  final List<Todo> _todos = [];
-  List<Todo> get todos => List.unmodifiable(_todos);
-  TodoBook get todoBook => TodoBook(_todos);
-
-  Todo? todoById(String id) =>
-      _todos.where((todo) => todo.id == id).firstOrNull;
-
-  int _idSequence = 0;
-
-  /// Unique within a session even for two ids made in the same microsecond,
-  /// which quick multi-add does.
-  String _newId(String kind) =>
-      '$kind-${DateTime.now().microsecondsSinceEpoch}-${_idSequence++}';
-
-  Future<void> addTodo(String title, DateTime? date) async {
-    final text = title.trim();
-    if (text.isEmpty) return;
-    _todos.insert(
-      0,
-      Todo(
-        id: _newId('todo'),
-        title: text,
-        date: date == null ? null : dateOnly(date),
-        createdAt: wallNow(),
-      ),
-    );
-    await _persistTodos();
-  }
-
-  /// Done becomes undone and the other way round. A todo's steps follow it:
-  /// checking the todo checks every step.
-  Future<void> toggleTodo(String id) async {
-    final index = _todos.indexWhere((todo) => todo.id == id);
-    if (index < 0) return;
-    final todo = _todos[index];
-    final done = !todo.isDone;
-    _todos[index] = todo.copyWith(
-      isDone: done,
-      completedAt: done ? wallNow() : null,
-      clearCompletedAt: !done,
-      subTodos: [for (final step in todo.subTodos) step.copyWith(isDone: done)],
-    );
-    await _persistTodos();
-  }
-
-  Future<void> updateTodo(
-    String id, {
-    String? title,
-    DateTime? date,
-    bool clearDate = false,
-  }) async {
-    final index = _todos.indexWhere((todo) => todo.id == id);
-    if (index < 0) return;
-    final text = title?.trim();
-    _todos[index] = _todos[index].copyWith(
-      title: text == null || text.isEmpty ? null : text,
-      date: date == null ? null : dateOnly(date),
-      clearDate: clearDate,
-    );
-    await _persistTodos();
-  }
-
-  Future<void> removeTodo(String id) async {
-    _todos.removeWhere((todo) => todo.id == id);
-    await _persistTodos();
-  }
-
-  Future<void> addSubTodo(String todoId, String title) async {
-    final text = title.trim();
-    if (text.isEmpty) return;
-    await _editSteps(
-      todoId,
-      (steps) => [...steps, SubTodo(id: _newId('step'), title: text)],
-    );
-  }
-
-  Future<void> toggleSubTodo(String todoId, String stepId) => _editSteps(
-    todoId,
-    (steps) => [
-      for (final step in steps)
-        step.id == stepId ? step.copyWith(isDone: !step.isDone) : step,
-    ],
-  );
-
-  Future<void> updateSubTodo(String todoId, String stepId, String title) {
-    final text = title.trim();
-    if (text.isEmpty) return Future.value();
-    return _editSteps(
-      todoId,
-      (steps) => [
-        for (final step in steps)
-          step.id == stepId ? step.copyWith(title: text) : step,
-      ],
-    );
-  }
-
-  Future<void> removeSubTodo(String todoId, String stepId) => _editSteps(
-    todoId,
-    (steps) => steps.where((step) => step.id != stepId).toList(),
-  );
-
-  /// Changes a todo's steps, then keeps the todo's own state in line with
-  /// them: done exactly when every step is. Adding an unfinished step reopens
-  /// a finished todo.
-  Future<void> _editSteps(
-    String todoId,
-    List<SubTodo> Function(List<SubTodo>) change,
-  ) async {
-    final index = _todos.indexWhere((todo) => todo.id == todoId);
-    if (index < 0) return;
-    var todo = _todos[index].copyWith(subTodos: change(_todos[index].subTodos));
-    if (todo.hasSubTodos) {
-      final allDone = todo.subTodos.every((step) => step.isDone);
-      if (allDone != todo.isDone) {
-        todo = todo.copyWith(
-          isDone: allDone,
-          completedAt: allDone ? wallNow() : null,
-          clearCompletedAt: !allDone,
-        );
-      }
-    }
-    _todos[index] = todo;
-    await _persistTodos();
-  }
-
-  Future<void> _persistTodos() async {
-    notifyListeners();
-    final local = await _store;
-    await local.saveTodos(_todos);
-  }
-
-  // Notes --------------------------------------------------------------------
-
-  final List<Note> _notes = [];
-
-  /// Pinned first, then most recently edited.
-  List<Note> get notes => sortNotes(_notes);
-
-  Note? noteById(String id) =>
-      _notes.where((note) => note.id == id).firstOrNull;
-
-  String newNoteId() => _newId('note');
-
-  /// Adds a note, or replaces the one with the same id.
-  Future<void> upsertNote(Note note) async {
-    final index = _notes.indexWhere((existing) => existing.id == note.id);
-    if (index < 0) {
-      _notes.insert(0, note);
-    } else {
-      _notes[index] = note;
-    }
-    await _persistNotes();
-  }
-
-  Future<void> removeNote(String id) async {
-    _notes.removeWhere((note) => note.id == id);
-    await _persistNotes();
-  }
-
-  /// Pinning is not an edit, so the note keeps its place among the others.
-  Future<void> toggleNotePin(String id) async {
-    final index = _notes.indexWhere((note) => note.id == id);
-    if (index < 0) return;
-    final note = _notes[index];
-    _notes[index] = note.copyWith(
-      pinned: !note.pinned,
-      updatedAt: note.updatedAt,
-    );
-    await _persistNotes();
-  }
-
-  Future<void> _persistNotes() async {
-    notifyListeners();
-    final local = await _store;
-    await local.saveNotes(_notes);
-  }
-
-  // Money --------------------------------------------------------------------
-  //
-  // An income and expense log with budgets and loans. Amounts land on the
-  // user's calendar day, so it runs on the wall clock like todos.
-
-  final List<ExpenseEntry> _moneyEntries = [];
-  final List<Budget> _budgets = [];
-  final List<LoanEntry> _loans = [];
-  Currency currency = Currency.all.first;
-
-  static const maxMoneyEntries = 5000;
-  static const maxBudgets = 200;
-  static const maxLoans = 1000;
-
-  MoneyBook? _moneyBook;
-
-  /// The whole ledger, sorted and indexed once per change.
-  MoneyBook get moneyBook => _moneyBook ??= MoneyBook(
-    entries: _moneyEntries,
-    budgets: _budgets,
-    loans: _loans,
-    currency: currency,
-  );
-
-  Future<void> setCurrency(Currency next) async {
-    if (next.code == currency.code) return;
-    currency = next;
-    _moneyBook = null;
-    notifyListeners();
-    final local = await _store;
-    await local.saveCurrency(next.code);
-  }
-
-  static String _cap(String text, int length) {
-    final trimmed = text.trim();
-    return trimmed.length > length ? trimmed.substring(0, length) : trimmed;
-  }
-
-  /// A detail only belongs to an Other entry.
-  static String _detailFor(String category, String detail) =>
-      category == ExpenseCategory.otherName ? detail.trim() : '';
-
-  Future<void> addMoneyEntry({
-    required EntryType type,
-    required double amount,
-    required String category,
-    required DateTime date,
-    String title = '',
-    String detail = '',
-  }) async {
-    if (amount <= 0 || _moneyEntries.length >= maxMoneyEntries) return;
-    _moneyEntries.add(
-      ExpenseEntry(
-        id: _newId('money'),
-        type: type,
-        title: _cap(title, ExpenseEntry.maxTitleLength),
-        amount: amount.clamp(0, ExpenseEntry.maxAmount).toDouble(),
-        category: category,
-        detail: _detailFor(category, detail),
-        date: dateOnly(date),
-        createdAt: wallNow(),
-      ),
-    );
-    await _persistMoneyEntries();
-  }
-
-  Future<void> updateMoneyEntry(
-    String id, {
-    EntryType? type,
-    double? amount,
-    String? category,
-    DateTime? date,
-    String? title,
-    String? detail,
-  }) async {
-    final index = _moneyEntries.indexWhere((entry) => entry.id == id);
-    if (index < 0) return;
-    final entry = _moneyEntries[index];
-    final nextCategory = category ?? entry.category;
-    _moneyEntries[index] = entry.copyWith(
-      type: type,
-      title: title == null ? null : _cap(title, ExpenseEntry.maxTitleLength),
-      amount: amount?.clamp(0, ExpenseEntry.maxAmount).toDouble(),
-      category: category,
-      // Moving an entry away from Other drops what it said it was.
-      detail: _detailFor(nextCategory, detail ?? entry.detail),
-      date: date == null ? null : dateOnly(date),
-    );
-    await _persistMoneyEntries();
-  }
-
-  Future<void> removeMoneyEntry(String id) async {
-    final before = _moneyEntries.length;
-    _moneyEntries.removeWhere((entry) => entry.id == id);
-    if (_moneyEntries.length == before) return;
-    await _persistMoneyEntries();
-  }
-
-  /// Puts back an entry that was just deleted: the undo on its snackbar.
-  Future<void> restoreMoneyEntry(ExpenseEntry entry) async {
-    if (_moneyEntries.any((existing) => existing.id == entry.id)) return;
-    _moneyEntries.add(entry);
-    await _persistMoneyEntries();
-  }
-
-  Future<void> _persistMoneyEntries() async {
-    _moneyBook = null;
-    notifyListeners();
-    final local = await _store;
-    await local.saveMoneyEntries(_moneyEntries);
-  }
-
-  Future<void> addBudget({
-    required String label,
-    required double amount,
-    required DateTime start,
-    required DateTime end,
-    String category = '',
-  }) async {
-    if (amount <= 0 || _budgets.length >= maxBudgets) return;
-    final (from, to) = _ordered(start, end);
-    _budgets.add(
-      Budget(
-        id: _newId('budget'),
-        label: _cap(label, Budget.maxLabelLength),
-        amount: amount,
-        start: from,
-        end: to,
-        category: category,
-      ),
-    );
-    await _persistBudgets();
-  }
-
-  Future<void> updateBudget(
-    String id, {
-    required String label,
-    required double amount,
-    required DateTime start,
-    required DateTime end,
-    String category = '',
-  }) async {
-    final index = _budgets.indexWhere((budget) => budget.id == id);
-    if (index < 0 || amount <= 0) return;
-    final (from, to) = _ordered(start, end);
-    _budgets[index] = _budgets[index].copyWith(
-      label: _cap(label, Budget.maxLabelLength),
-      amount: amount,
-      start: from,
-      end: to,
-      category: category,
-    );
-    await _persistBudgets();
-  }
-
-  Future<void> removeBudget(String id) async {
-    _budgets.removeWhere((budget) => budget.id == id);
-    await _persistBudgets();
-  }
-
-  Future<void> restoreBudget(Budget budget) async {
-    if (_budgets.any((existing) => existing.id == budget.id)) return;
-    _budgets.add(budget);
-    await _persistBudgets();
-  }
-
-  /// Start never after end, whichever order the dates were picked in.
-  static (DateTime, DateTime) _ordered(DateTime a, DateTime b) {
-    final first = dateOnly(a);
-    final second = dateOnly(b);
-    return first.isAfter(second) ? (second, first) : (first, second);
-  }
-
-  Future<void> _persistBudgets() async {
-    _moneyBook = null;
-    notifyListeners();
-    final local = await _store;
-    await local.saveBudgets(_budgets);
-  }
-
-  Future<void> addLoan({
-    required LoanType type,
-    required String person,
-    required double amount,
-    required DateTime date,
-    String note = '',
-  }) async {
-    if (amount <= 0 || _loans.length >= maxLoans) return;
-    _loans.add(
-      LoanEntry(
-        id: _newId('loan'),
-        type: type,
-        person: _cap(person, LoanEntry.maxNameLength),
-        amount: amount,
-        date: dateOnly(date),
-        note: note.trim(),
-      ),
-    );
-    await _persistLoans();
-  }
-
-  Future<void> updateLoan(
-    String id, {
-    required LoanType type,
-    required String person,
-    required double amount,
-    required DateTime date,
-    String note = '',
-  }) async {
-    final index = _loans.indexWhere((loan) => loan.id == id);
-    if (index < 0 || amount <= 0) return;
-    _loans[index] = _loans[index].copyWith(
-      type: type,
-      person: _cap(person, LoanEntry.maxNameLength),
-      amount: amount,
-      date: dateOnly(date),
-      note: note.trim(),
-    );
-    await _persistLoans();
-  }
-
-  Future<void> toggleLoanSettled(String id) async {
-    final index = _loans.indexWhere((loan) => loan.id == id);
-    if (index < 0) return;
-    final settled = !_loans[index].settled;
-    _loans[index] = _loans[index].copyWith(
-      settled: settled,
-      settledAt: settled ? wallNow() : null,
-      clearSettledAt: !settled,
-    );
-    await _persistLoans();
-  }
-
-  Future<void> removeLoan(String id) async {
-    _loans.removeWhere((loan) => loan.id == id);
-    await _persistLoans();
-  }
-
-  Future<void> restoreLoan(LoanEntry loan) async {
-    if (_loans.any((existing) => existing.id == loan.id)) return;
-    _loans.add(loan);
-    await _persistLoans();
-  }
-
-  Future<void> _persistLoans() async {
-    _moneyBook = null;
-    notifyListeners();
-    final local = await _store;
-    await local.saveLoans(_loans);
   }
 
   // Page lock ----------------------------------------------------------------
@@ -1513,211 +1031,11 @@ class ControlStore extends ChangeNotifier {
     await local.savePageLock(pageLock);
   }
 
-  /// The highest stage already celebrated, so a new one is celebrated once.
-  int growthStageSeen = 0;
-
-  Future<void> markGrowthSeen(int stage) async {
-    if (stage <= growthStageSeen) return;
-    growthStageSeen = stage;
-    final local = await _store;
-    await local.saveGrowthStageSeen(stage);
-  }
-
-  /// How many of the habits due on [day] are done. A habit done on a day off
-  /// counts on both sides, so extra credit never reads as a shortfall.
-  ({int done, int due}) habitProgressOn(DateTime day) {
-    var done = 0;
-    var due = 0;
-    for (final habit in habits) {
-      // A habit counts only from the day it was created.
-      if (dateOnly(day).isBefore(dateOnly(habit.createdAt))) continue;
-      final isDone = habitStats(habit).isDoneOn(day);
-      if (!habit.isDueOn(day) && !isDone) continue;
-      due++;
-      if (isDone) done++;
-    }
-    return (done: done, due: due);
-  }
-
-  Future<void> addHabit(Habit habit) async {
-    _habits.add(habit);
-    if (habit.reminders.isNotEmpty) _askForNotifications();
-    await _persistHabits();
-  }
-
-  /// Every change lands in memory before the first await, so a sheet can
-  /// close the moment it calls this; the file write follows on its own.
-  Future<void> updateHabit(Habit updated) async {
-    final index = _habits.indexWhere((habit) => habit.id == updated.id);
-    if (index < 0) return;
-    final previous = _habits[index];
-    if (previous.reminders.isEmpty && updated.reminders.isNotEmpty) {
-      _askForNotifications();
-    }
-    // A habit switched away from timing cannot keep a timer running. Stopped
-    // before the switch, so the run is banked in the unit it was measured in.
-    final stopping =
-        updated.kind != HabitKind.timer && habitTimer?.habitId == updated.id
-        ? stopHabitTimer()
-        : null;
-    _habits[index] = updated;
-
-    // Seconds do not mean glasses. When the measure changes, the days that
-    // were done stay done and the partial ones are let go, so streaks survive
-    // the edit without inventing progress.
-    final log = _habitLog[updated.id];
-    final remapped = previous.kind != updated.kind && log != null;
-    if (remapped) {
-      log
-        ..updateAll((_, amount) => amount >= previous.goal ? updated.goal : 0)
-        ..removeWhere((_, amount) => amount <= 0);
-    }
-    notifyListeners();
-
-    await stopping;
-    if (remapped) {
-      final local = await _store;
-      await local.saveHabitLog(_habitLog);
-    }
-    await _persistHabits();
-  }
-
-  Future<void> removeHabit(String id) async {
-    final hadTimer = habitTimer?.habitId == id;
-    if (hadTimer) {
-      habitTimer = null;
-      _habitTicker?.cancel();
-      _habitTicker = null;
-    }
-    _habits.removeWhere((habit) => habit.id == id);
-    _habitLog.remove(id);
-    notifyListeners();
-
-    if (hadTimer) {
-      final local = await _store;
-      await local.saveHabitTimer(null);
-    }
-    await _persistHabits();
-    await _persistHabitLog();
-  }
-
-  /// Sets the stored amount for [day]. Never below zero, and never for a day
-  /// before the habit was created or after today.
-  Future<void> setHabitAmount(String id, DateTime day, int amount) async {
-    final habit = habitById(id);
-    if (habit == null || !habitStats(habit).canLog(day)) return;
-    final log = _habitLog.putIfAbsent(id, () => {});
-    if (amount <= 0) {
-      log.remove(dayKey(day));
-    } else {
-      log[dayKey(day)] = amount;
-    }
-    await _persistHabitLog();
-  }
-
-  Future<void> addHabitAmount(String id, DateTime day, int delta) {
-    final current = _habitLog[id]?[dayKey(day)] ?? 0;
-    return setHabitAmount(id, day, current + delta);
-  }
-
-  /// Done becomes not done, and anything short of done becomes done.
-  Future<void> toggleHabit(String id, DateTime day) {
-    final habit = habitById(id);
-    if (habit == null) return Future.value();
-    final done = habitStats(habit).isDoneOn(day);
-    return setHabitAmount(id, day, done ? 0 : habit.goal);
-  }
-
-  Future<void> startHabitTimer(String id) async {
-    final stopping = habitTimer == null ? null : stopHabitTimer();
-    habitTimer = HabitTimer(habitId: id, startedAt: wallNow());
-    _startHabitTicker();
-    notifyListeners();
-    await stopping;
-    final local = await _store;
-    await local.saveHabitTimer(habitTimer);
-  }
-
-  /// Banks the run into the log, split across midnight if it crossed one.
-  Future<void> stopHabitTimer() async {
-    final timer = habitTimer;
-    if (timer == null) return;
-    habitTimer = null;
-    _habitTicker?.cancel();
-    _habitTicker = null;
-
-    final log = _habitLog.putIfAbsent(timer.habitId, () => {});
-    for (final entry in timer.secondsByDay(wallNow()).entries) {
-      log[entry.key] = (log[entry.key] ?? 0) + entry.value;
-    }
-    final local = await _store;
-    await local.saveHabitTimer(null);
-    await _persistHabitLog();
-  }
-
-  void _startHabitTicker() {
-    _habitTicker?.cancel();
-    _habitTicker = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (habitTimer == null) {
-        _habitTicker?.cancel();
-        _habitTicker = null;
-        return;
-      }
-      notifyListeners();
-    });
-  }
-
   void _askForNotifications() => unawaited(
     _channel.requestNotificationPermission().catchError((Object error) {
       debugPrint('control: could not ask for notifications: $error');
     }),
   );
-
-  Future<void> _persistHabits() async {
-    notifyListeners();
-    final local = await _store;
-    await local.saveHabits(_habits);
-    await _syncHabitReminders();
-  }
-
-  Future<void> _persistHabitLog() async {
-    notifyListeners();
-    final local = await _store;
-    await local.saveHabitLog(_habitLog);
-    await _syncHabitReminders();
-  }
-
-  /// Hands every reminder to Android, which owns the alarms.
-  ///
-  /// Like the widget summary, a failure here is logged and swallowed: a
-  /// reminder that could not be scheduled must never undo the tick that
-  /// triggered the sync.
-  Future<void> _syncHabitReminders() async {
-    final today = wallNow();
-    try {
-      await _channel.setHabitReminders([
-        for (final habit in _habits)
-          for (final minute in habit.reminders)
-            {
-              'id': '${habit.id}@$minute',
-              'habitId': habit.id,
-              'title': habit.name,
-              'body': habit.description.trim().isNotEmpty
-                  ? habit.description.trim()
-                  : habit.kind == HabitKind.check
-                  ? 'A small step still counts.'
-                  : '${habit.goalLabel} today.',
-              'minute': minute,
-              'weekdays': habit.weekdays.toList()..sort(),
-              'doneDay': habitStats(habit, now: today).isDoneOn(today)
-                  ? dayKey(today)
-                  : 0,
-            },
-      ]);
-    } catch (error) {
-      debugPrint('control: could not schedule habit reminders: $error');
-    }
-  }
 
   // Place check-ins ----------------------------------------------------------
 
@@ -1950,6 +1268,9 @@ class ControlStore extends ChangeNotifier {
 
   Future<void> openAppInfo() => _channel.openAppInfo();
 
+  Future<bool> openSystemScreen(SystemScreen screen) =>
+      _channel.openSystemScreen(screen);
+
   // Engine -------------------------------------------------------------------
 
   /// Recomputes every decision and hands the union to the platform enforcer.
@@ -1975,6 +1296,19 @@ class ControlStore extends ChangeNotifier {
     }
 
     final grants = Map<String, UnlockGrant>.from(_signals.grants);
+    // Android mints a steps allowance itself while this isolate is not
+    // running. Adopted first, so the same walk is never paid out twice and
+    // the allowance runs from when it was really earned.
+    for (final MapEntry(key: id, value: native)
+        in (await _nativeGrants()).entries) {
+      final existing = grants[id];
+      if (existing == null ||
+          existing.grantedAt.isBefore(today) ||
+          native.grantedAt.isBefore(existing.grantedAt)) {
+        grants[id] = native;
+      }
+    }
+    _signals = _signals.copyWith(grants: grants);
     for (final block in _blocks) {
       final grant = _engine.mintGrantIfEarned(
         block: block,
@@ -2000,12 +1334,45 @@ class ControlStore extends ChangeNotifier {
       details: _detailsFor(plan),
       blocks: _blocks,
       grants: grants,
+      stepGates: _stepGates(grants, today),
     );
     await _pushSummary(plan);
     notifyListeners();
 
     final local = await _store;
     await local.saveGrants(grants);
+  }
+
+  Future<Map<String, UnlockGrant>> _nativeGrants() async {
+    try {
+      return await _channel.nativeGrants();
+    } catch (error) {
+      debugPrint('control: could not read native allowances: $error');
+      return const {};
+    }
+  }
+
+  /// Blocks Android may unlock on its own by counting steps, with the steps
+  /// it takes: those whose every other condition is already met today and
+  /// that have not had today's allowance yet. The other conditions are daily
+  /// totals that only grow, so they cannot come undone before midnight.
+  Map<String, int> _stepGates(Map<String, UnlockGrant> grants, DateTime today) {
+    final gates = <String, int>{};
+    for (final block in _blocks) {
+      if (!block.enabled || block.mode != LimitMode.condition) continue;
+      final steps = block.conditions.whereType<StepsCondition>().toList();
+      if (steps.isEmpty) continue;
+      final grant = grants[block.id];
+      if (grant != null && !grant.grantedAt.isBefore(today)) continue;
+      final othersMet = block.conditions
+          .where((condition) => condition is! StepsCondition)
+          .every((condition) => condition.isMet(_signals));
+      if (!othersMet) continue;
+      gates[block.id] = steps
+          .map((condition) => condition.targetSteps)
+          .reduce(math.max);
+    }
+    return gates;
   }
 
   /// Feeds the widget, the tile and the weekly notification.

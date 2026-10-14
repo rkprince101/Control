@@ -368,14 +368,7 @@ abstract final class PinDialog {
 
 /// The pages a PIN can guard: everything but Settings, which holds the PIN's
 /// own controls and so must always be reachable.
-const lockableDestinations = [
-  Destination.blocks,
-  Destination.habits,
-  Destination.todos,
-  Destination.notes,
-  Destination.money,
-  Destination.insights,
-];
+const lockableDestinations = [Destination.blocks, Destination.insights];
 
 /// Settings for the PIN: set it, then choose what it guards. Once a PIN
 /// exists, changing any of this asks for it first.
