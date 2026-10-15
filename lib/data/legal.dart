@@ -87,9 +87,10 @@ const privacyPolicy = LegalDocument(
           'screen beyond the list above.',
     ]),
     LegalSection('What Control stores', [
-      'Your rules, locks, focus sessions and settings are saved in the '
-          'app\'s private storage on your phone. A page-lock PIN or block password is stored only as '
-          'a salted hash, never as itself.',
+      'Your rules, locks, focus sessions, parked thoughts and settings are '
+          'saved in the app\'s private storage on your phone. A page-lock '
+          'PIN or block password is stored only as a salted hash, never as '
+          'itself.',
       'None of it is sent to the developer or anyone else, and none of it is '
           'backed up to a server. Uninstalling Control, or clearing its data '
           'in Android Settings, deletes all of it.',

@@ -308,7 +308,9 @@ class _AppPickerSheetState extends State<AppPickerSheet> {
                         );
                       },
                     ),
-                  const SliverToBoxAdapter(child: SizedBox(height: 24)),
+                  SliverToBoxAdapter(
+                    child: SizedBox(height: 24 + MediaQuery.paddingOf(context).bottom),
+                  ),
                 ],
               ),
             ),

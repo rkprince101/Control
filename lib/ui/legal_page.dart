@@ -40,7 +40,7 @@ class LegalPage extends StatelessWidget {
                 surfaceTintColor: Colors.transparent,
               ),
               SliverPadding(
-                padding: EdgeInsets.fromLTRB(side, 0, side, 40),
+                padding: EdgeInsets.fromLTRB(side, 0, side, 40 + MediaQuery.paddingOf(context).bottom),
                 sliver: SliverList.list(
                   children: [
                     Padding(

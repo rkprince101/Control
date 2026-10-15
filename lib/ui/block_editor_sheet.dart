@@ -3,7 +3,10 @@ import 'dart:async';
 import 'package:control_core/control_core.dart';
 import 'package:flutter/material.dart';
 
+import '../data/activity.dart';
+import '../data/descriptions.dart';
 import '../main.dart';
+import '../platform/platform_models.dart';
 import '../state/control_store.dart';
 import 'app_picker_sheet.dart';
 import 'block_icon.dart';
@@ -21,8 +24,9 @@ import 'widgets.dart';
 ///
 /// Only the modes and habits whose signals this platform actually measures are
 /// offered. A Place rule with no location source fails closed and would read as
-/// an app that blocks everything forever; a Workout condition with no Health
-/// Connect source could never be satisfied at all.
+/// an app that blocks everything forever. Workout and Meditate always have a
+/// source, the timer on the block card, with Health Connect added when the
+/// phone has it.
 class BlockEditorSheet extends StatefulWidget {
   const BlockEditorSheet({
     this.existing,
@@ -76,6 +80,10 @@ class _BlockEditorSheetState extends State<BlockEditorSheet> {
   late int _shortcutCount;
   late bool _focusOn;
   late int _focusMinutes;
+  late bool _workoutOn;
+  late int _workoutMinutes;
+  late bool _meditateOn;
+  late int _meditateMinutes;
   late bool _placeOn;
   GeoPoint? _placeCentre;
   late String _placeName;
@@ -139,6 +147,16 @@ class _BlockEditorSheetState extends State<BlockEditorSheet> {
     final focus = block?.conditions.whereType<FocusCondition>().firstOrNull;
     _focusOn = focus != null;
     _focusMinutes = focus?.target.inMinutes ?? 240;
+
+    final workout = block?.conditions.whereType<WorkoutCondition>().firstOrNull;
+    _workoutOn = workout != null;
+    _workoutMinutes = workout?.target.inMinutes ?? 30;
+
+    final meditate = block?.conditions
+        .whereType<MeditateCondition>()
+        .firstOrNull;
+    _meditateOn = meditate != null;
+    _meditateMinutes = meditate?.target.inMinutes ?? 10;
 
     final place = block?.conditions
         .whereType<PlaceCheckInCondition>()
@@ -212,7 +230,12 @@ class _BlockEditorSheetState extends State<BlockEditorSheet> {
             _header(),
             Expanded(
               child: ListView(
-                padding: const EdgeInsets.fromLTRB(20, 8, 20, 40),
+                padding: EdgeInsets.fromLTRB(
+                  20,
+                  8,
+                  20,
+                  40 + MediaQuery.paddingOf(context).bottom,
+                ),
                 children: [
                   _identityCard(),
                   if (locked) ...[
@@ -571,7 +594,7 @@ class _BlockEditorSheetState extends State<BlockEditorSheet> {
             icon: Icons.directions_walk_rounded,
             label: 'Steps',
             subtitle: store.stepsStatus.available
-                ? '$_stepsTarget steps today'
+                ? '${formatCount(_stepsTarget)} steps today'
                 : 'No step counter on this device',
             enabled: store.stepsStatus.available,
             selected: _stepsOn,
@@ -594,27 +617,64 @@ class _BlockEditorSheetState extends State<BlockEditorSheet> {
                   min: 500,
                   max: 30000,
                   step: 500,
-                  format: (value) => '$value steps',
+                  format: (value) => '${formatCount(value)} steps',
                   onChanged: (value) => setState(() => _stepsTarget = value),
+                ),
+                const SizedBox(height: 8),
+                const _Hint(
+                  'Counted all day from the phone\'s step counter, with the '
+                  'app closed too. Reaching it unlocks the apps without '
+                  'opening Control.',
                 ),
               ],
             ),
           ),
-          const _HabitTile(
+          _HabitTile(
             icon: Icons.fitness_center_rounded,
             label: 'Workout',
-            subtitle: 'Needs Health Connect',
-            enabled: false,
-            selected: false,
-            onToggle: _ignoreToggle,
+            subtitle: '$_workoutMinutes min of workout today',
+            enabled: true,
+            selected: _workoutOn,
+            onToggle: (value) => setState(() => _workoutOn = value),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _Stepper(
+                  value: _workoutMinutes,
+                  min: 5,
+                  max: 240,
+                  step: 5,
+                  format: (value) => formatDuration(Duration(minutes: value)),
+                  onChanged: (value) => setState(() => _workoutMinutes = value),
+                ),
+                const SizedBox(height: 8),
+                const _HealthSource(kind: ActivityKind.workout),
+              ],
+            ),
           ),
-          const _HabitTile(
+          _HabitTile(
             icon: Icons.self_improvement_rounded,
             label: 'Meditate',
-            subtitle: 'Needs Health Connect',
-            enabled: false,
-            selected: false,
-            onToggle: _ignoreToggle,
+            subtitle: '$_meditateMinutes min of meditation today',
+            enabled: true,
+            selected: _meditateOn,
+            onToggle: (value) => setState(() => _meditateOn = value),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _Stepper(
+                  value: _meditateMinutes,
+                  min: 5,
+                  max: 120,
+                  step: 5,
+                  format: (value) => formatDuration(Duration(minutes: value)),
+                  onChanged: (value) =>
+                      setState(() => _meditateMinutes = value),
+                ),
+                const SizedBox(height: 8),
+                const _HealthSource(kind: ActivityKind.meditate),
+              ],
+            ),
           ),
           _HabitTile(
             icon: Icons.timelapse_rounded,
@@ -962,8 +1022,6 @@ class _BlockEditorSheetState extends State<BlockEditorSheet> {
     );
   }
 
-  static void _ignoreToggle(bool _) {}
-
   static const _reArmOptions = <(String, Duration?)>[
     ('Off', null),
     ('30m', Duration(minutes: 30)),
@@ -990,6 +1048,16 @@ class _BlockEditorSheetState extends State<BlockEditorSheet> {
         FocusCondition(
           id: '$id-focus',
           target: Duration(minutes: _focusMinutes),
+        ),
+      if (_workoutOn)
+        WorkoutCondition(
+          id: '$id-workout',
+          target: Duration(minutes: _workoutMinutes),
+        ),
+      if (_meditateOn)
+        MeditateCondition(
+          id: '$id-meditate',
+          target: Duration(minutes: _meditateMinutes),
         ),
       if (_placeOn && _placeCentre != null)
         PlaceCheckInCondition(
@@ -1100,6 +1168,75 @@ class _BlockEditorSheetState extends State<BlockEditorSheet> {
         debugPrint('control: update refused by the lock on ${block.id}');
       }
     }
+  }
+}
+
+/// Where a Workout or Meditate condition gets its minutes, and the way to
+/// connect Health Connect when it is not yet.
+class _HealthSource extends StatelessWidget {
+  const _HealthSource({required this.kind});
+
+  final ActivityKind kind;
+
+  @override
+  Widget build(BuildContext context) {
+    final store = StoreScope.of(context);
+    final health = store.health;
+    final (noun, apps) = kind == ActivityKind.workout
+        ? ('workouts', 'Mi Fitness or Google Fit')
+        : ('mindfulness sessions', 'Headspace, Calm or Medito');
+    final allowed = kind == ActivityKind.workout
+        ? health.workout
+        : health.mindful;
+    final supported = kind == ActivityKind.workout || health.mindfulSupported;
+
+    final (text, action, onTap) = switch (health.sdk) {
+      HealthSdk.available when allowed => (
+        'Counts $noun recorded in Health Connect by apps like $apps, plus '
+            'the timer on the block card.',
+        null,
+        null,
+      ),
+      HealthSdk.available when !supported => (
+        'This phone\'s Health Connect does not record mindfulness yet. Use '
+            'the timer on the block card.',
+        'Update Health Connect',
+        store.openHealthConnect,
+      ),
+      HealthSdk.available => (
+        'Time it with the timer on the block card, or connect Health '
+            'Connect to count $noun your fitness apps record.',
+        'Connect Health Connect',
+        store.requestHealthPermissions,
+      ),
+      HealthSdk.updateRequired => (
+        'Time it with the timer on the block card, or install Health '
+            'Connect to count $noun your fitness apps record.',
+        'Get Health Connect',
+        store.openHealthConnect,
+      ),
+      HealthSdk.unavailable => (
+        'Time it with the timer on the block card.',
+        null,
+        null,
+      ),
+    };
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _Hint(text),
+        if (action != null && onTap != null) ...[
+          const SizedBox(height: 8),
+          ControlChip(
+            label: action,
+            icon: Icons.favorite_outline_rounded,
+            selected: false,
+            onTap: () => onTap(),
+          ),
+        ],
+      ],
+    );
   }
 }
 

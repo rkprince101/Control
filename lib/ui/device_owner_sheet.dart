@@ -90,7 +90,7 @@ class _DeviceOwnerSheetState extends State<DeviceOwnerSheet> {
                 : status == null
                 ? const Center(child: CircularProgressIndicator())
                 : ListView(
-                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 40),
+                    padding: EdgeInsets.fromLTRB(20, 8, 20, 40 + MediaQuery.paddingOf(context).bottom),
                     children: status.isOwner
                         ? _provisioned(status)
                         : _setup(status),

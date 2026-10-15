@@ -86,7 +86,7 @@ class _Steps extends StatelessWidget {
 
     return ListView(
       shrinkWrap: true,
-      padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
+      padding: EdgeInsets.fromLTRB(20, 8, 20, 32 + MediaQuery.paddingOf(context).bottom),
       children: [
         Center(
           child: Container(
@@ -332,7 +332,7 @@ class _Done extends StatelessWidget {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 16, 24, 40),
+      padding: EdgeInsets.fromLTRB(24, 16, 24, 40 + MediaQuery.paddingOf(context).bottom),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [

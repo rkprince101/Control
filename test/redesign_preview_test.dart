@@ -97,7 +97,12 @@ void main() {
   Future<void> goTo(WidgetTester tester, String label) async {
     await tester.tap(menu.hitTestable());
     await tester.pumpAndSettle();
-    await tester.tap(find.bySemanticsLabel(label));
+    await tester.tap(
+      find.descendant(
+        of: find.byType(Drawer),
+        matching: find.bySemanticsLabel(label),
+      ),
+    );
     await tester.pumpAndSettle();
   }
 
@@ -243,6 +248,21 @@ void main() {
       }
     });
   }
+
+  testWidgets('Thoughts: ready, still blocked and done', (tester) async {
+    await host(tester);
+    await goTo(tester, 'Thoughts');
+    expect(find.text('Parked thoughts'), findsOneWidget);
+    expect(find.text('READY NOW'), findsOneWidget);
+    expect(find.text('Open Video'), findsOneWidget);
+    expect(find.text('Today, 11:42 AM'), findsOneWidget);
+    expectMenuReachable();
+    expect(tester.takeException(), isNull);
+    await expectLater(
+      find.byKey(screenshot),
+      matchesGoldenFile('goldens/thoughts_light.png'),
+    );
+  });
 
   testWidgets('Gmail-style drawer with pages, badges and the small print', (
     tester,

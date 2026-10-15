@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:control/data/focus.dart';
+import 'package:control/data/thoughts.dart';
 import 'package:control/platform/platform_models.dart';
 import 'package:control/state/control_store.dart';
 import 'package:control/ui/expressive_progress.dart';
@@ -56,6 +57,7 @@ class PreviewStore extends ControlStore {
     );
     insightsUsage = usage;
     insightsUpdatedAt = now;
+    thoughts = _thoughtFixtures;
   }
 
   static final now = DateTime(2026, 9, 23, 14);
@@ -140,6 +142,57 @@ class PreviewStore extends ControlStore {
   @override
   FocusStats focusStats({String? blockId}) =>
       FocusStats.from(_focusHistory, now, blockId: blockId);
+
+  @override
+  DateTime wallClock() => now;
+
+  /// Fixtures only: the preview has no native store to read.
+  @override
+  Future<void> refreshThoughts() async {}
+
+  static final _thoughtFixtures = [
+    ParkedThought(
+      id: 'sam',
+      text: 'Reply to Sam about Saturday, and send the address.',
+      createdAt: DateTime(2026, 9, 23, 11, 42),
+      packageName: 'com.google.android.youtube',
+      target: 'com.google.android.youtube',
+      label: 'Video',
+      blockTitle: 'Focus first',
+      raw: 'sam',
+    ),
+    ParkedThought(
+      id: 'train',
+      text: 'Look up the 8:10 train and book a window seat.',
+      createdAt: DateTime(2026, 9, 23, 9, 5),
+      packageName: 'com.android.chrome',
+      target: 'com.android.chrome',
+      label: 'Browser',
+      blockTitle: 'Mindful browsing',
+      blockedNow: true,
+      status: 'Blocked by your recurring schedule.',
+      raw: 'train',
+    ),
+    ParkedThought(
+      id: 'news',
+      text: 'Finish the article on sleep and focus.',
+      createdAt: DateTime(2026, 9, 22, 21, 30),
+      packageName: 'com.android.chrome',
+      target: 'news.example',
+      label: 'news.example',
+      blockTitle: 'Mindful browsing',
+      blockedNow: true,
+      status: 'Blocked by your recurring schedule.',
+      raw: 'news',
+    ),
+    ParkedThought(
+      id: 'bank',
+      text: 'Call the bank about the card.',
+      createdAt: DateTime(2026, 9, 21, 18),
+      doneAt: DateTime(2026, 9, 22, 10),
+      raw: 'bank',
+    ),
+  ];
 
   /// Same as the real one, minus the file write the preview never opens.
   @override

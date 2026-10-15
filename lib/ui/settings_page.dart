@@ -147,14 +147,41 @@ class SettingsPage extends StatelessWidget {
               ),
               Divider(height: 1, color: colors.divider),
               _PermissionRow(
+                icon: Icons.favorite_outline_rounded,
+                label: 'Health Connect',
+                granted: store.health.connected,
+                optional: true,
+                subtitle: switch (store.health.sdk) {
+                  HealthSdk.unavailable => 'Not available on this phone',
+                  HealthSdk.updateRequired =>
+                    'Install it to count workouts your fitness apps record',
+                  HealthSdk.available when store.health.connected =>
+                    store.health.mindful
+                        ? 'Workouts and mindfulness from your fitness apps'
+                        : 'Workouts from your fitness apps',
+                  HealthSdk.available =>
+                    'Count workouts and meditation your fitness apps record',
+                },
+                onTap: () {
+                  if (store.health.sdk == HealthSdk.available &&
+                      !store.health.connected) {
+                    store.requestHealthPermissions();
+                  } else if (store.health.sdk != HealthSdk.unavailable) {
+                    store.openHealthConnect();
+                  }
+                },
+              ),
+              Divider(height: 1, color: colors.divider),
+              _PermissionRow(
                 icon: Icons.place_outlined,
                 label: 'Location',
                 granted: store.locationStatus.usable,
                 // Granted but switched off at the system level is a common
                 // state, and it needs a different fix from a missing grant.
-                subtitle:
-                    store.locationStatus.granted &&
-                        !store.locationStatus.enabled
+                subtitle: store.locationStatus.approximateOnly
+                    ? 'Approximate only. Check-ins need precise location'
+                    : store.locationStatus.granted &&
+                          !store.locationStatus.enabled
                     ? 'Location services are switched off'
                     : 'Used only when you tap Check in at a place',
                 onTap: store.requestLocationPermission,

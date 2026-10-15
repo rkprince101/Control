@@ -3,6 +3,7 @@
 // ignore_for_file: prefer_initializing_formals
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 
@@ -10,10 +11,12 @@ import 'package:control_core/control_core.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
+import '../data/activity.dart';
 import '../data/descriptions.dart';
 import '../data/focus.dart';
 import '../data/local_store.dart';
 import '../data/page_lock.dart';
+import '../data/thoughts.dart';
 import '../data/password.dart';
 import '../platform/enforcement_channel.dart';
 import '../platform/platform_models.dart';
@@ -32,6 +35,8 @@ enum CheckInResult {
   fixTooVague,
   noFix,
   noPermission,
+  approximateOnly,
+  mockLocation,
   locationOff,
   unknownCondition;
 
@@ -44,6 +49,12 @@ enum CheckInResult {
           'again in a moment.',
     CheckInResult.noFix => 'No location fix yet. Try again in a moment.',
     CheckInResult.noPermission => 'Control needs location access for this.',
+    CheckInResult.approximateOnly =>
+      'Control only has approximate location, which cannot prove you are '
+          'there. Allow precise location.',
+    CheckInResult.mockLocation =>
+      'That location comes from a mock-location app, so it cannot prove you '
+          'are there.',
     CheckInResult.locationOff => 'Turn on location services first.',
     CheckInResult.unknownCondition => 'That habit no longer exists.',
   };
@@ -260,6 +271,9 @@ class ControlStore extends ChangeNotifier {
     _focusSessions
       ..clear()
       ..addAll(local.loadFocusSessions());
+    _activitySessions
+      ..clear()
+      ..addAll(local.loadActivitySessions());
 
     pageLock = local.loadPageLock();
     // Hydrate persisted commitments before yielding: a concurrent add must not
@@ -283,6 +297,7 @@ class ControlStore extends ChangeNotifier {
       await _persistFocus();
     }
     _updateTicker();
+    _updateActivityTicker();
     unawaited(_syncFocusNotification());
     await _channel.setHardMode(hardMode);
 
@@ -296,7 +311,106 @@ class ControlStore extends ChangeNotifier {
     await _refreshClock();
     await refreshPermissions();
     await refreshSignals();
+    await refreshThoughts();
     await refreshInsights();
+  }
+
+  // Parked thoughts ------------------------------------------------------------
+  //
+  // Written on the block screen with Flutter asleep, so the native store is
+  // the only copy; this is a view of it, re-read on resume and every few
+  // seconds while the app is open, which is how a thought moves to Ready the
+  // moment its block lifts.
+
+  List<ParkedThought> thoughts = const [];
+
+  /// Open thoughts, the number beside Thoughts in the drawer.
+  int get openThoughtCount =>
+      thoughts.where((thought) => !thought.isDone).length;
+
+  Future<void> refreshThoughts() async {
+    try {
+      final next = await _channel.thoughts();
+      if (listEquals(next, thoughts)) return;
+      thoughts = next;
+      notifyListeners();
+    } catch (error) {
+      debugPrint('control: could not read parked thoughts: $error');
+    }
+  }
+
+  Future<void> _thoughtChange(Future<void> Function() change) async {
+    try {
+      await change();
+    } catch (error) {
+      debugPrint('control: could not change a parked thought: $error');
+    }
+    await refreshThoughts();
+  }
+
+  Future<void> addThought(String text) {
+    if (text.trim().isEmpty) return Future.value();
+    return _thoughtChange(() => _channel.addThought(text.trim()));
+  }
+
+  Future<void> updateThought(String id, String text) {
+    if (text.trim().isEmpty) return Future.value();
+    return _thoughtChange(() => _channel.updateThought(id, text.trim()));
+  }
+
+  /// Ticked off, or back to open.
+  Future<void> setThoughtDone(String id, {required bool done}) {
+    // Moves at once; the write follows.
+    thoughts = [
+      for (final thought in thoughts)
+        thought.id == id
+            ? ParkedThought.fromChannel({
+                    'json': _withDoneAt(thought.raw, done ? wallClock() : null),
+                    'blockedNow': thought.blockedNow,
+                    'status': thought.status,
+                  }) ??
+                  thought
+            : thought,
+    ];
+    notifyListeners();
+    return _thoughtChange(() => _channel.setThoughtDone(id, done: done));
+  }
+
+  Future<void> deleteThought(ParkedThought thought) {
+    thoughts = thoughts.where((other) => other.id != thought.id).toList();
+    notifyListeners();
+    return _thoughtChange(() => _channel.deleteThought(thought.id));
+  }
+
+  Future<void> restoreThought(ParkedThought thought) =>
+      _thoughtChange(() => _channel.restoreThought(thought));
+
+  Future<void> clearDoneThoughts() {
+    thoughts = thoughts.where((thought) => !thought.isDone).toList();
+    notifyListeners();
+    return _thoughtChange(_channel.clearDoneThoughts);
+  }
+
+  Future<bool> openThoughtTarget(ParkedThought thought) async {
+    try {
+      return await _channel.openThoughtTarget(thought);
+    } catch (error) {
+      debugPrint('control: could not open ${thought.label}: $error');
+      return false;
+    }
+  }
+
+  /// The wall clock, for stamps the user reads. Overridable in previews.
+  DateTime wallClock() => DateTime.now();
+
+  static String _withDoneAt(String raw, DateTime? at) {
+    try {
+      final map = Map<String, Object?>.from(jsonDecode(raw) as Map);
+      map['doneAt'] = at?.millisecondsSinceEpoch ?? 0;
+      return jsonEncode(map);
+    } catch (_) {
+      return raw;
+    }
   }
 
   Future<void> refreshPermissions() async {
@@ -309,6 +423,11 @@ class ControlStore extends ChangeNotifier {
       notifications = await _channel.notificationStatus();
     } catch (error) {
       debugPrint('control: could not read notification access: $error');
+    }
+    try {
+      health = await _channel.healthStatus();
+    } catch (error) {
+      debugPrint('control: could not read Health Connect: $error');
     }
     try {
       shieldFallbackAt = await _channel.lastShieldFallback();
@@ -358,6 +477,7 @@ class ControlStore extends ChangeNotifier {
 
     final steps = stepsStatus.usable ? await _channel.stepsToday() : 0;
     final shortcuts = await _channel.shortcutCounts();
+    await _refreshHealthSessions(now);
     final local = await _store;
 
     _signals = _signals.copyWith(
@@ -365,6 +485,8 @@ class ControlStore extends ChangeNotifier {
       stepsToday: steps,
       shortcutCounts: shortcuts,
       focusToday: focusToday,
+      workoutToday: activityToday(ActivityKind.workout),
+      mindfulToday: activityToday(ActivityKind.meditate),
       // Reloaded rather than kept, so a check-in stops counting at midnight
       // even if the app was never closed.
       placeCheckIns: local.loadPlaceCheckIns(now),
@@ -391,6 +513,24 @@ class ControlStore extends ChangeNotifier {
     notifyListeners();
     await publish();
   }
+
+  /// What the open app re-reads every few seconds: steps, and whether a
+  /// check-in window has just opened or closed, which shows or hides its
+  /// button with nothing else changing.
+  Future<void> refreshLive() async {
+    await refreshSteps();
+    await refreshThoughts();
+    final windows = [
+      for (final (_, condition) in placeConditions())
+        isCheckInWindowOpen(condition),
+    ];
+    if (!listEquals(windows, _checkInWindows)) {
+      _checkInWindows = windows;
+      notifyListeners();
+    }
+  }
+
+  List<bool> _checkInWindows = const [];
 
   static bool _countsSteps(Block block) =>
       block.enabled &&
@@ -828,6 +968,8 @@ class ControlStore extends ChangeNotifier {
     if (running != null && _crossedFocusTarget()) {
       // Unlock the moment the goal is met, not when stop is finally pressed.
       unawaited(_publishFocusProgress());
+    } else if (running != null && !running.isPaused) {
+      _refreshLiveProgress();
     }
     final pause = focusBreak;
     if (pause != null && pause.isOver(now)) {
@@ -939,6 +1081,14 @@ class ControlStore extends ChangeNotifier {
           doneTitle: 'Break over',
           doneText: 'Ready for the next $name session.',
         );
+      } else if (runningActivity case final activity?) {
+        // The workout or meditation timer shares the one ongoing
+        // notification; a focus session, when there is one, comes first.
+        await _channel.showFocusTimer(
+          title: activity.kind.label,
+          text: 'Timer running. Open Control to stop it.',
+          clockAt: wall.subtract(activity.lengthAt(now)),
+        );
       } else {
         await _channel.cancelFocusTimer();
       }
@@ -960,6 +1110,7 @@ class ControlStore extends ChangeNotifier {
     _disposed = true;
     _insightsGeneration++;
     _stopTicker();
+    _activityTicker?.cancel();
     super.dispose();
   }
 
@@ -1064,17 +1215,32 @@ class ControlStore extends ChangeNotifier {
     final now = _now();
     if (!condition.window.contains(now)) return CheckInResult.outsideWindow;
 
+    // Read now, not at the last resume: location is often switched on from
+    // the quick settings without ever leaving the app.
+    try {
+      locationStatus = await _channel.locationStatus();
+    } catch (error) {
+      debugPrint('control: could not read location status: $error');
+    }
+    if (locationStatus.approximateOnly) return CheckInResult.approximateOnly;
     if (!locationStatus.granted) return CheckInResult.noPermission;
     if (!locationStatus.enabled) return CheckInResult.locationOff;
 
-    final reading = await _channel.currentLocation();
-    if (reading == null) return CheckInResult.noFix;
+    final fix = await _channel.currentLocation();
+    lastCheckInFix = fix;
+    if (fix == null) return CheckInResult.noFix;
+    if (fix.mock) return CheckInResult.mockLocation;
+    final reading = fix.reading;
 
     // The condition decides, not this method: the same rule has to hold
     // wherever it is asked.
     if (!condition.canCheckIn(reading, now)) {
-      final distance = condition.zone.center.distanceTo(reading.point).round();
-      return distance > condition.zone.radiusMeters
+      // Too far only when even the nearest edge of the error circle is
+      // outside. A cell-tower fix accurate to 800 m whose centre lands 500 m
+      // off says nothing about where you are; calling that "too far" sent
+      // people walking when the fix was the problem.
+      final distance = condition.zone.center.distanceTo(reading.point);
+      return distance - reading.accuracyMeters > condition.zone.radiusMeters
           ? CheckInResult.tooFar
           : CheckInResult.fixTooVague;
     }
@@ -1088,12 +1254,241 @@ class ControlStore extends ChangeNotifier {
     return CheckInResult.success;
   }
 
+  /// The fix the last check-in was judged on, so a refusal can say how far
+  /// off it was rather than just that it failed.
+  LocationFix? lastCheckInFix;
+
   Future<void> requestLocationPermission() =>
       _channel.requestLocationPermission();
 
   /// One fix for the editor, so a zone can be dropped where the user is
   /// standing without a map.
-  Future<GeoReading?> currentLocation() => _channel.currentLocation();
+  Future<GeoReading?> currentLocation() async =>
+      (await _channel.currentLocation())?.reading;
+
+  // Workout and meditation ---------------------------------------------------
+  //
+  // Two sources, merged: sessions other apps recorded in Health Connect, and
+  // Control's own timer. Merged as time intervals, so a workout recorded in
+  // both at once counts once.
+
+  HealthStatus health = const HealthStatus.unknown();
+  List<(DateTime, DateTime)> _healthWorkout = const [];
+  List<(DateTime, DateTime)> _healthMindful = const [];
+
+  final List<ActivitySession> _activitySessions = [];
+  Timer? _activityTicker;
+
+  ActivitySession? get runningActivity =>
+      _activitySessions.where((session) => session.isRunning).firstOrNull;
+
+  /// Blocks with a Workout or Meditate condition.
+  static bool usesActivity(Block block, ActivityKind kind) =>
+      block.conditions.any(
+        (condition) => switch (kind) {
+          ActivityKind.workout => condition is WorkoutCondition,
+          ActivityKind.meditate => condition is MeditateCondition,
+        },
+      );
+
+  bool get _anyActivityRule => _blocks.any(
+    (block) =>
+        block.enabled &&
+        (usesActivity(block, ActivityKind.workout) ||
+            usesActivity(block, ActivityKind.meditate)),
+  );
+
+  /// Today's minutes of [kind], from both sources, overlap counted once.
+  Duration activityToday(ActivityKind kind) {
+    final now = _now();
+    final today = DateTime(now.year, now.month, now.day);
+    return coveredTime(
+      [
+        for (final session in _activitySessions)
+          if (session.kind == kind) (session.startedAt, session.end(now)),
+        ...switch (kind) {
+          ActivityKind.workout => _healthWorkout,
+          ActivityKind.meditate => _healthMindful,
+        },
+      ],
+      today,
+      now,
+    );
+  }
+
+  /// Today's minutes of [kind] recorded in Health Connect alone.
+  Duration healthToday(ActivityKind kind) {
+    final now = _now();
+    return coveredTime(
+      switch (kind) {
+        ActivityKind.workout => _healthWorkout,
+        ActivityKind.meditate => _healthMindful,
+      },
+      DateTime(now.year, now.month, now.day),
+      now,
+    );
+  }
+
+  Duration activityLengthOf(ActivitySession session) =>
+      session.lengthAt(_now());
+
+  Future<void> _refreshHealthSessions(DateTime now) async {
+    if (!health.connected || !_anyActivityRule) {
+      _healthWorkout = const [];
+      _healthMindful = const [];
+      return;
+    }
+    try {
+      final sessions = await _channel.healthSessions(
+        start: DateTime(now.year, now.month, now.day),
+        end: DateTime.now(),
+      );
+      _healthWorkout = sessions.workout;
+      _healthMindful = sessions.mindful;
+    } catch (error) {
+      // A Health Connect hiccup must not take the other signals down with it.
+      debugPrint('control: could not read Health Connect sessions: $error');
+    }
+  }
+
+  /// Starts the timer for [kind]. One at a time: starting one stops another.
+  Future<void> startActivity(ActivityKind kind) async {
+    final now = _now();
+    final previous = runningActivity;
+    if (previous != null) _replaceActivity(previous, previous.stoppedAt(now));
+    _activitySessions.add(ActivitySession(kind: kind, startedAt: now));
+    _updateActivityTicker();
+    if (!_askedFocusNotifications) {
+      _askedFocusNotifications = true;
+      _askForNotifications();
+    }
+    notifyListeners();
+    await _persistActivities();
+    await _syncFocusNotification();
+  }
+
+  /// Banks the running timer and publishes, since it may have earned an
+  /// unlock.
+  Future<void> stopActivity() async {
+    final running = runningActivity;
+    if (running == null) return;
+    _replaceActivity(running, running.stoppedAt(_now()));
+    _updateActivityTicker();
+    notifyListeners();
+    await _persistActivities();
+    await _syncFocusNotification();
+    await _publishActivityProgress();
+  }
+
+  void _replaceActivity(ActivitySession before, ActivitySession after) {
+    final index = _activitySessions.indexOf(before);
+    if (index >= 0) _activitySessions[index] = after;
+  }
+
+  void _updateActivityTicker() {
+    if (runningActivity == null) {
+      _activityTicker?.cancel();
+      _activityTicker = null;
+      return;
+    }
+    _activityTicker ??= Timer.periodic(
+      const Duration(seconds: 1),
+      (_) => _activityTick(),
+    );
+  }
+
+  void _activityTick() {
+    final running = runningActivity;
+    if (running == null) {
+      _updateActivityTicker();
+      return;
+    }
+    final now = _now();
+    if (running.lengthAt(now) >= ActivitySession.maxLength) {
+      // Forgotten, not a four-hour workout: close it at its cap.
+      unawaited(stopActivity());
+      return;
+    }
+    if (_crossedActivityTarget()) {
+      unawaited(_publishActivityProgress());
+    } else {
+      _refreshLiveProgress();
+    }
+    notifyListeners();
+  }
+
+  /// Progress bars follow a running timer second by second. Decisions are
+  /// re-evaluated in memory only: without a grant a block stays blocked, so
+  /// nothing is unlocked or handed to Android until a goal is crossed, which
+  /// publishes properly.
+  void _refreshLiveProgress() {
+    final now = _now();
+    if (_signalsDay != DateTime(now.year, now.month, now.day)) return;
+    _signals = _signals.copyWith(
+      focusToday: focusToday,
+      workoutToday: activityToday(ActivityKind.workout),
+      mindfulToday: activityToday(ActivityKind.meditate),
+    );
+    _plan = _engine.plan(blocks: _blocks, signals: _signals, now: now);
+  }
+
+  /// The signals as last handed to the engine for real. Live progress moves
+  /// [_signals] every second; crossings are measured against this.
+  Signals _published = const Signals();
+
+  /// A Workout or Meditate goal reached by the running timer just now: unlock
+  /// at once, not when stop is finally pressed.
+  bool _crossedActivityTarget() {
+    final workout = activityToday(ActivityKind.workout);
+    final mindful = activityToday(ActivityKind.meditate);
+    return _blocks.any(
+      (block) =>
+          block.enabled &&
+          block.conditions.any(
+            (condition) => switch (condition) {
+              WorkoutCondition() =>
+                _published.workoutToday < condition.target &&
+                    workout >= condition.target,
+              MeditateCondition() =>
+                _published.mindfulToday < condition.target &&
+                    mindful >= condition.target,
+              _ => false,
+            },
+          ),
+    );
+  }
+
+  Future<void> _publishActivityProgress() async {
+    _signals = _signals.copyWith(
+      workoutToday: activityToday(ActivityKind.workout),
+      mindfulToday: activityToday(ActivityKind.meditate),
+    );
+    notifyListeners();
+    await publish();
+  }
+
+  Future<void> _persistActivities() async {
+    final local = await _store;
+    await local.saveActivitySessions(_activitySessions, _now());
+  }
+
+  Future<bool> requestHealthPermissions() async {
+    try {
+      return await _channel.requestHealthPermissions();
+    } catch (error) {
+      debugPrint('control: could not ask Health Connect: $error');
+      return false;
+    }
+  }
+
+  Future<bool> openHealthConnect() async {
+    try {
+      return await _channel.openHealthConnect();
+    } catch (error) {
+      debugPrint('control: could not open Health Connect: $error');
+      return false;
+    }
+  }
 
   // Protection ---------------------------------------------------------------
 
@@ -1328,6 +1723,7 @@ class ControlStore extends ChangeNotifier {
 
     final plan = _engine.plan(blocks: _blocks, signals: _signals, now: now);
     _plan = plan;
+    _published = _signals;
 
     await _channel.applyPlan(
       plan,

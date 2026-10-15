@@ -73,6 +73,10 @@ kotlin {
 }
 
 dependencies {
+    // Workouts and mindfulness sessions other apps record. Needs Android 8;
+    // the manifest overrides its minSdk and every call is gated at runtime.
+    implementation("androidx.health.connect:connect-client:1.1.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     // Pure-JVM tests for the tamper rules. They decide whether the Settings app
     // opens at all, so they are worth a real test target.
     testImplementation("junit:junit:4.13.2")

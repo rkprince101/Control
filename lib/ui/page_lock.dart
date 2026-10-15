@@ -181,11 +181,12 @@ class _PageLockGateState extends State<PageLockGate> {
         final side = math.max(20.0, (constraints.maxWidth - 1120) / 2);
         return Column(
           children: [
-            if (inShell) ShellSearchBar(horizontalPadding: side),
+            if (inShell)
+              ShellSearchBar(horizontalPadding: side, includeTopInset: true),
             Expanded(
               child: Center(
                 child: SingleChildScrollView(
-                  padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
+                  padding: EdgeInsets.fromLTRB(24, 16, 24, 32 + MediaQuery.paddingOf(context).bottom),
                   child: body,
                 ),
               ),
@@ -368,7 +369,11 @@ abstract final class PinDialog {
 
 /// The pages a PIN can guard: everything but Settings, which holds the PIN's
 /// own controls and so must always be reachable.
-const lockableDestinations = [Destination.blocks, Destination.insights];
+const lockableDestinations = [
+  Destination.blocks,
+  Destination.thoughts,
+  Destination.insights,
+];
 
 /// Settings for the PIN: set it, then choose what it guards. Once a PIN
 /// exists, changing any of this asks for it first.

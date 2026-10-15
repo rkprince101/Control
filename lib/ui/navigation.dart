@@ -16,6 +16,11 @@ import 'theme.dart';
 /// The places the app can be.
 enum Destination {
   blocks('Blocks', Icons.shield_outlined, Icons.shield_rounded),
+  thoughts(
+    'Thoughts',
+    Icons.lightbulb_outline_rounded,
+    Icons.lightbulb_rounded,
+  ),
   insights('Insights', Icons.bar_chart_outlined, Icons.bar_chart_rounded),
   settings('Settings', Icons.tune_outlined, Icons.tune_rounded);
 
@@ -63,9 +68,17 @@ class HomeNavigation extends InheritedWidget {
 /// It is also the fastest way around the app: every rule and page is a
 /// few letters away.
 class ShellSearchBar extends StatelessWidget {
-  const ShellSearchBar({required this.horizontalPadding, super.key});
+  const ShellSearchBar({
+    required this.horizontalPadding,
+    this.includeTopInset = false,
+    super.key,
+  });
 
   final double horizontalPadding;
+
+  /// Draws its background up under the status bar as well, for a page with
+  /// nothing else there. Pages that scroll keep a scrim there instead.
+  final bool includeTopInset;
 
   @override
   Widget build(BuildContext context) {
@@ -78,7 +91,7 @@ class ShellSearchBar extends StatelessWidget {
       child: Padding(
         padding: EdgeInsets.fromLTRB(
           horizontalPadding,
-          8,
+          8 + (includeTopInset ? MediaQuery.paddingOf(context).top : 0),
           horizontalPadding,
           8,
         ),
@@ -277,6 +290,7 @@ class ControlDrawer extends StatelessWidget {
             const _DrawerHeader(),
             for (final destination in const [
               Destination.blocks,
+              Destination.thoughts,
               Destination.insights,
             ])
               DrawerItem(
@@ -373,6 +387,9 @@ class ControlDrawer extends StatelessWidget {
                 .length ??
             0;
         return blocking == 0 ? null : '$blocking';
+      case Destination.thoughts:
+        final open = store.openThoughtCount;
+        return open <= 0 ? null : (open > 99 ? '99+' : '$open');
       case Destination.insights:
         final time = store.usage.screenTime;
         return !store.usageAccessGranted || time == Duration.zero

@@ -1,6 +1,8 @@
 import 'package:control_core/control_core.dart';
 import 'package:flutter/services.dart';
 
+import '../data/thoughts.dart';
+
 import 'platform_models.dart';
 
 /// Dart side of the enforcement seam.
@@ -75,6 +77,46 @@ class EnforcementChannel {
         ],
     });
   }
+
+  // Parked thoughts -------------------------------------------------------------
+
+  /// Every parked thought, newest first, each with whether its app is still
+  /// blocked right now.
+  Future<List<ParkedThought>> thoughts() async {
+    final result = await _channel.invokeMethod<List<Object?>>('thoughts');
+    return [
+      for (final entry in result ?? const <Object?>[])
+        ?ParkedThought.fromChannel(entry),
+    ];
+  }
+
+  Future<void> addThought(String text) =>
+      _channel.invokeMethod<Object?>('addThought', {'text': text});
+
+  Future<void> updateThought(String id, String text) => _channel
+      .invokeMethod<void>('updateThought', {'id': id, 'text': text});
+
+  Future<void> setThoughtDone(String id, {required bool done}) => _channel
+      .invokeMethod<void>('setThoughtDone', {'id': id, 'done': done});
+
+  Future<void> deleteThought(String id) =>
+      _channel.invokeMethod<void>('deleteThought', {'id': id});
+
+  /// Puts a deleted thought back exactly as it was.
+  Future<void> restoreThought(ParkedThought thought) =>
+      _channel.invokeMethod<bool>('restoreThought', {'json': thought.raw});
+
+  Future<void> clearDoneThoughts() =>
+      _channel.invokeMethod<void>('clearDoneThoughts');
+
+  /// Opens the app a thought was about, or the site in the browser. False if
+  /// it could not be opened.
+  Future<bool> openThoughtTarget(ParkedThought thought) async =>
+      await _channel.invokeMethod<bool>('openThoughtTarget', {
+        'packageName': thought.packageName,
+        'target': thought.target,
+      }) ??
+      false;
 
   /// Allowances Android minted on its own when a steps target was reached
   /// while Flutter was not running.
@@ -211,19 +253,54 @@ class EnforcementChannel {
 
   /// One fix, taken now. Null when there is no permission, no provider, or no
   /// fix within the timeout.
-  Future<GeoReading?> currentLocation() async {
+  /// The best fresh fix Android can give within a few seconds, or null.
+  Future<LocationFix?> currentLocation() async {
     final result = await _channel.invokeMethod<Map<Object?, Object?>>(
       'currentLocation',
     );
-    if (result == null) return null;
+    return result == null ? null : LocationFix.fromMap(result);
+  }
 
-    return GeoReading(
-      point: GeoPoint(
-        (result['latitude']! as num).toDouble(),
-        (result['longitude']! as num).toDouble(),
-      ),
-      accuracyMeters: (result['accuracy'] as num?)?.toDouble() ?? 0,
+  // Health Connect -------------------------------------------------------------
+
+  Future<HealthStatus> healthStatus() async {
+    final result = await _channel.invokeMethod<Map<Object?, Object?>>(
+      'healthStatus',
     );
+    return result == null
+        ? const HealthStatus.unknown()
+        : HealthStatus.fromMap(result);
+  }
+
+  /// Health Connect's own permission screen. False when it could not open.
+  Future<bool> requestHealthPermissions() async =>
+      await _channel.invokeMethod<bool>('requestHealthPermissions') ?? false;
+
+  /// Install or update Health Connect, or open its settings once it is there.
+  Future<bool> openHealthConnect() async =>
+      await _channel.invokeMethod<bool>('openHealthConnect') ?? false;
+
+  /// Start and end of every workout and mindfulness session recorded in
+  /// Health Connect between [start] and [end].
+  Future<({List<(DateTime, DateTime)> workout, List<(DateTime, DateTime)> mindful})>
+  healthSessions({required DateTime start, required DateTime end}) async {
+    final result = await _channel.invokeMethod<Map<Object?, Object?>>(
+      'healthSessions',
+      <String, Object?>{
+        'startMillis': start.millisecondsSinceEpoch,
+        'endMillis': end.millisecondsSinceEpoch,
+      },
+    );
+    List<(DateTime, DateTime)> spans(Object? raw) => [
+      if (raw is List)
+        for (final span in raw)
+          if (span is List && span.length == 2)
+            (
+              DateTime.fromMillisecondsSinceEpoch((span[0] as num).toInt()),
+              DateTime.fromMillisecondsSinceEpoch((span[1] as num).toInt()),
+            ),
+    ];
+    return (workout: spans(result?['workout']), mindful: spans(result?['mindful']));
   }
 
   // Widget, tile and weekly report -------------------------------------------

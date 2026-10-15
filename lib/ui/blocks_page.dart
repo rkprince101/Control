@@ -1,6 +1,7 @@
 import 'package:control_core/control_core.dart';
 import 'package:flutter/material.dart';
 
+import '../data/activity.dart';
 import '../data/descriptions.dart';
 import '../main.dart';
 import '../platform/platform_models.dart';
@@ -219,6 +220,11 @@ class BlockCard extends StatelessWidget {
               const SizedBox(height: 10),
               _FocusControls(block: block),
             ],
+            for (final kind in ActivityKind.values)
+              if (ControlStore.usesActivity(block, kind)) ...[
+                const SizedBox(height: 10),
+                _ActivityControls(block: block, kind: kind),
+              ],
             for (final condition
                 in block.conditions.whereType<PlaceCheckInCondition>()) ...[
               const SizedBox(height: 10),
@@ -403,6 +409,86 @@ class _FocusControls extends StatelessWidget {
   }
 }
 
+/// The Workout or Meditate timer on the card: start it before, stop it after.
+///
+/// Its minutes join whatever Health Connect has recorded today, with overlap
+/// counted once, so timing a workout that a watch is also recording is
+/// harmless.
+class _ActivityControls extends StatelessWidget {
+  const _ActivityControls({required this.block, required this.kind});
+
+  final Block block;
+  final ActivityKind kind;
+
+  Duration get _target => switch (kind) {
+    ActivityKind.workout =>
+      block.conditions.whereType<WorkoutCondition>().first.target,
+    ActivityKind.meditate =>
+      block.conditions.whereType<MeditateCondition>().first.target,
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    final store = StoreScope.of(context);
+    final colors = ControlColors.of(context);
+    final running = store.runningActivity;
+    final mine = running != null && running.kind == kind;
+    final today = store.activityToday(kind);
+    final fromHealth = store.healthToday(kind);
+    final progress = '${formatDuration(today)} / ${formatDuration(_target)}';
+
+    final (icon, label) = mine
+        ? (
+            Icons.stop_rounded,
+            '${kind.label}  ${formatClock(store.activityLengthOf(running))}'
+                '  ·  Stop',
+          )
+        : today >= _target
+        ? (Icons.check_circle_rounded, 'Target met  $progress')
+        : (Icons.play_arrow_rounded, '${kind.startLabel}  $progress');
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: double.infinity,
+          child: FilledButton.tonal(
+            onPressed: () =>
+                mine ? store.stopActivity() : store.startActivity(kind),
+            style: FilledButton.styleFrom(
+              minimumSize: const Size(48, 48),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+            ),
+            child: Row(
+              children: [
+                Icon(icon, size: 18, color: mine ? colors.light : null),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    label,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                      color: mine ? colors.light : null,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        if (fromHealth > Duration.zero) ...[
+          const SizedBox(height: 6),
+          Text(
+            '${formatDuration(fromHealth)} from Health Connect today',
+            style: TextStyle(color: colors.textMuted, fontSize: 12),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
 /// Check in at a place, while the window is open.
 ///
 /// Only shown when it can actually be used: a button that is dead for
@@ -478,7 +564,17 @@ class _CheckInButtonState extends State<_CheckInButton> {
     if (!mounted) return;
 
     setState(() => _busy = false);
-    messenger.showSnackBar(SnackBar(content: Text(result.message)));
+    final fix = store.lastCheckInFix?.reading;
+    final zone = widget.condition.zone;
+    final detail =
+        fix != null &&
+            (result == CheckInResult.fixTooVague ||
+                result == CheckInResult.tooFar)
+        ? ' Your fix is ${zone.center.distanceTo(fix.point).round()} m '
+              'from ${zone.name}, accurate to ${fix.accuracyMeters.round()} m; '
+              'the place allows ${zone.radiusMeters.round()} m.'
+        : '';
+    messenger.showSnackBar(SnackBar(content: Text('${result.message}$detail')));
   }
 }
 

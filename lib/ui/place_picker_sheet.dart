@@ -234,7 +234,7 @@ class _PlacePickerSheetState extends State<PlacePickerSheet> {
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+      padding: EdgeInsets.fromLTRB(20, 16, 20, 24 + MediaQuery.paddingOf(context).bottom),
       color: colors.card,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

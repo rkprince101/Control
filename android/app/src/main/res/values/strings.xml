@@ -10,6 +10,17 @@
     <string name="block_progress">%1$d%% of the way there</string>
     <string name="block_countdown">Unlocks in %1$s</string>
     <string name="block_unlocking">Unlocking now</string>
+    <string name="health_rationale_title">Control and Health Connect</string>
+    <string name="health_rationale_body">Control reads when your workouts and mindfulness sessions started and ended today, and nothing else: no heart rate, routes, calories or other health data. It adds those minutes up on your phone to unlock a block with a Workout or Meditate condition. Nothing is stored beyond today, and nothing leaves your phone.</string>
+    <string name="health_rationale_policy">Read the privacy policy</string>
+    <string name="park_button">Park a thought</string>
+    <string name="park_resume">Finish parking your thought</string>
+    <string name="park_prompt">What did you open %1$s for?</string>
+    <string name="park_hint">Reply to Sam, check the train time…</string>
+    <string name="park_helper">It waits in Control, under Thoughts, until %1$s opens again.</string>
+    <string name="park_save">Park it</string>
+    <string name="park_cancel">Cancel</string>
+    <string name="park_saved">Parked. It\'s waiting in Control, under Thoughts.</string>
     <string name="block_fallback_toast">%1$s is blocked. Allow Control to show pop-up windows to see why.</string>
     <string name="block_web_reason">%1$s is blocked right now, in the app and in the browser.</string>
 

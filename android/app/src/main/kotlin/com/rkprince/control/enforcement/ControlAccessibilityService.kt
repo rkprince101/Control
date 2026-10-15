@@ -35,6 +35,7 @@ class ControlAccessibilityService : AccessibilityService() {
     private var lastBlockedAt = 0L
     private var eventCheckPending = false
     private var lastFallbackToastAt = 0L
+    private var lastLoggedPackage: String? = null
     private var ticks = 0L
     private var steps: StepsReader? = null
     private var stepsListener: SensorEventListener? = null
@@ -161,7 +162,19 @@ class ControlAccessibilityService : AccessibilityService() {
             val appCategories = if (plan.rules?.any { it.categories.isNotEmpty() } == true) {
                 categories.categories(foreground)
             } else emptySet()
-            if (plan.blocks(foreground, appCategories, now)) {
+            val blocked = plan.blocks(foreground, appCategories, now)
+            if (foreground != lastLoggedPackage) {
+                // One line per app switch, never per tick: enough to tell "not
+                // matched" from "matched but not blocked" from the outside.
+                lastLoggedPackage = foreground
+                Log.i(
+                    "ControlA11y",
+                    "foreground=$foreground categories=$appCategories " +
+                        "rules=${plan.rules?.size ?: -1} blocked=$blocked " +
+                        "active=${plan.rules?.count { it.isBlocked(now) } ?: -1}",
+                )
+            }
+            if (blocked) {
                 showBlockScreen(foreground, foreground)
                 return
             }

@@ -28,8 +28,8 @@ messages, or anything else on screen beyond what is listed above.
 
 ## What Control stores
 
-Your rules, locks, focus sessions and settings are saved in the app's private
-storage on your phone.
+Your rules, locks, focus sessions, parked thoughts and settings are saved in
+the app's private storage on your phone.
 If you set a page-lock PIN, only a salted SHA-256 hash of it is stored, never
 the PIN itself; block passwords are stored the same way, as salted, iterated
 hashes.

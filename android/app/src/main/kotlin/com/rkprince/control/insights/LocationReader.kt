@@ -10,6 +10,7 @@ import android.os.Build
 import android.os.CancellationSignal
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 
 /**
  * A single location fix, taken only when the user asks for one.
@@ -19,114 +20,165 @@ import android.os.Looper
  * so one foreground fix is all that is needed. That keeps the app off
  * background location, which is the permission Play reviews hardest and the one
  * that costs the most battery.
+ *
+ * Every provider that is switched on is asked at once and the most accurate
+ * fresh answer wins, inside a hard time limit. Asking GPS alone used to leave
+ * a check-in indoors spinning for half a minute, and then fall back to
+ * whatever fix the phone last had, however old: a fix from yesterday at the
+ * gym is not proof of being at the gym now.
  */
 class LocationReader(private val context: Context) {
+
+    /** A fix and what is known about how far to trust it. */
+    data class Fix(val location: Location, val ageMillis: Long, val mock: Boolean)
 
     fun hasPermission(): Boolean =
         context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) ==
             PackageManager.PERMISSION_GRANTED
 
+    /** Android 12 lets people grant approximate location only; check-ins need precise. */
+    fun hasApproximateOnly(): Boolean =
+        !hasPermission() &&
+            context.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) ==
+            PackageManager.PERMISSION_GRANTED
+
     fun isEnabled(): Boolean {
         val manager = manager() ?: return false
-        return manager.isProviderEnabled(LocationManager.GPS_PROVIDER) ||
-            manager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
+        return providers(manager).isNotEmpty()
     }
 
     /**
-     * Asks for a current fix, falling back to the last known one.
+     * Asks every enabled provider for a current fix and reports the best one,
+     * or null if none arrives fresh within [FIX_TIMEOUT_MS].
      *
-     * Reports the accuracy alongside the point rather than hiding it: the rule
-     * engine refuses a check-in whose error circle is not fully inside the
-     * zone, and it can only do that if this is honest about how vague the fix
-     * was.
+     * Reports the accuracy and whether the fix came from a mock provider rather
+     * than hiding either: the rule refuses a check-in whose error circle is
+     * not fully inside the zone, and a faked position is no check-in at all.
      */
-    // Guarded twice over: the permission is checked on the first line, and both
-    // provider calls are wrapped so a revoked permission surfaces as no fix
-    // rather than as a crash. Lint cannot follow either.
+    // The permission is checked on the first line, and every provider call is
+    // wrapped so a revoked permission surfaces as no fix rather than a crash.
     @SuppressLint("MissingPermission")
-    fun current(onResult: (Location?) -> Unit) {
-        if (!hasPermission()) {
-            onResult(null)
-            return
-        }
+    fun current(onResult: (Fix?) -> Unit) {
         val manager = manager()
-        if (manager == null) {
+        if (!hasPermission() || manager == null) {
+            onResult(null)
+            return
+        }
+        val providers = providers(manager)
+        if (providers.isEmpty()) {
             onResult(null)
             return
         }
 
-        val provider = when {
-            manager.isProviderEnabled(LocationManager.GPS_PROVIDER) ->
-                LocationManager.GPS_PROVIDER
+        val handler = Handler(Looper.getMainLooper())
+        val fixes = mutableListOf<Location>()
+        val cancels = mutableListOf<CancellationSignal>()
+        var pending = providers.size
+        var settled = false
 
-            manager.isProviderEnabled(LocationManager.NETWORK_PROVIDER) ->
-                LocationManager.NETWORK_PROVIDER
-
-            else -> null
+        fun finish() {
+            if (settled) return
+            settled = true
+            handler.removeCallbacksAndMessages(null)
+            cancels.forEach { runCatching { it.cancel() } }
+            val best = fixes.filter { ageOf(it) <= MAX_AGE_MS }.minByOrNull { it.accuracy }
+                ?: lastKnown(manager)?.takeIf { ageOf(it) <= MAX_AGE_MS }
+            onResult(best?.let { Fix(it, ageOf(it), isMock(it)) })
         }
 
-        if (provider == null) {
-            onResult(null)
-            return
+        fun accept(location: Location?) {
+            if (settled) return
+            if (location != null) fixes.add(location)
+            pending--
+            // A tight fix is as good as it gets; no reason to keep someone waiting.
+            if (pending <= 0 || (location != null && location.accuracy <= GOOD_ENOUGH_METERS)) {
+                finish()
+            }
         }
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            runCatching {
-                manager.getCurrentLocation(
-                    provider,
-                    CancellationSignal(),
-                    context.mainExecutor,
-                ) { location -> onResult(location ?: lastKnown(manager)) }
-            }.onFailure { onResult(lastKnown(manager)) }
-            return
+        for (provider in providers) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                val cancel = CancellationSignal().also { cancels.add(it) }
+                runCatching {
+                    manager.getCurrentLocation(provider, cancel, context.mainExecutor) { accept(it) }
+                }.onFailure { accept(null) }
+            } else {
+                requestOnce(manager, provider, handler) { accept(it) }
+            }
         }
+        handler.postDelayed({ finish() }, FIX_TIMEOUT_MS)
+    }
 
-        // Below API 30 there is no one-shot call, so subscribe and unsubscribe
-        // on the first fix, with a timeout so a cold GPS never hangs the UI.
-        @Suppress("DEPRECATION")
-        run {
-            val handler = Handler(Looper.getMainLooper())
-            var settled = false
-
-            val listener = object : android.location.LocationListener {
-                override fun onLocationChanged(location: Location) {
-                    if (settled) return
-                    settled = true
-                    manager.removeUpdates(this)
-                    onResult(location)
-                }
-
-                override fun onProviderEnabled(provider: String) = Unit
-                override fun onProviderDisabled(provider: String) = Unit
+    /** Below API 30 there is no one-shot call: subscribe, take the first fix, unsubscribe. */
+    @SuppressLint("MissingPermission")
+    @Suppress("DEPRECATION")
+    private fun requestOnce(
+        manager: LocationManager,
+        provider: String,
+        handler: Handler,
+        onFix: (Location?) -> Unit,
+    ) {
+        var done = false
+        val listener = object : android.location.LocationListener {
+            override fun onLocationChanged(location: Location) {
+                if (done) return
+                done = true
+                manager.removeUpdates(this)
+                onFix(location)
             }
 
-            runCatching {
-                manager.requestLocationUpdates(provider, 0L, 0f, listener, Looper.getMainLooper())
-            }.onFailure {
-                onResult(lastKnown(manager))
-                return
-            }
+            override fun onProviderEnabled(provider: String) = Unit
+            override fun onProviderDisabled(provider: String) = Unit
+        }
+        runCatching {
+            manager.requestLocationUpdates(provider, 0L, 0f, listener, Looper.getMainLooper())
+        }.onFailure {
+            done = true
+            onFix(null)
+            return
+        }
+        handler.postDelayed({
+            if (done) return@postDelayed
+            done = true
+            manager.removeUpdates(listener)
+        }, FIX_TIMEOUT_MS)
+    }
 
-            handler.postDelayed({
-                if (settled) return@postDelayed
-                settled = true
-                manager.removeUpdates(listener)
-                onResult(lastKnown(manager))
-            }, FIX_TIMEOUT_MS)
+    private fun providers(manager: LocationManager): List<String> {
+        val candidates = buildList {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) add(LocationManager.FUSED_PROVIDER)
+            add(LocationManager.GPS_PROVIDER)
+            add(LocationManager.NETWORK_PROVIDER)
+        }
+        return candidates.filter { provider ->
+            runCatching { manager.isProviderEnabled(provider) }.getOrDefault(false)
         }
     }
 
-    @Suppress("MissingPermission")
+    @SuppressLint("MissingPermission")
     private fun lastKnown(manager: LocationManager): Location? = runCatching {
-        listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
+        providers(manager)
             .mapNotNull { manager.getLastKnownLocation(it) }
-            .maxByOrNull { it.time }
+            .minByOrNull { ageOf(it) }
     }.getOrNull()
+
+    private fun ageOf(location: Location): Long =
+        (SystemClock.elapsedRealtimeNanos() - location.elapsedRealtimeNanos) / 1_000_000L
+
+    @Suppress("DEPRECATION")
+    private fun isMock(location: Location): Boolean =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) location.isMock
+        else location.isFromMockProvider
 
     private fun manager() =
         context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
 
     private companion object {
-        const val FIX_TIMEOUT_MS = 8000L
+        const val FIX_TIMEOUT_MS = 12_000L
+
+        /** Older than this, a fix says where the phone was, not where it is. */
+        const val MAX_AGE_MS = 120_000L
+
+        const val GOOD_ENOUGH_METERS = 20f
     }
 }

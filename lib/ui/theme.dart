@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 /// The four looks offered in Settings.
 ///
@@ -192,6 +193,27 @@ ColorScheme _pitchBlackScheme(ColorScheme dark) => dark.copyWith(
   surfaceContainerHighest: const Color(0xFF1F1F22),
 );
 
+/// Both system bars see-through, with icons that read on the page beneath.
+///
+/// Android otherwise lays its own scrims over the bars (a translucent black
+/// band under the status bar, a contrast band behind the gesture handle),
+/// which is what made the app look boxed in rather than edge to edge.
+SystemUiOverlayStyle systemBarsFor(Brightness brightness) {
+  final dark = brightness == Brightness.dark;
+  return SystemUiOverlayStyle(
+    statusBarColor: Colors.transparent,
+    statusBarBrightness: brightness,
+    statusBarIconBrightness: dark ? Brightness.light : Brightness.dark,
+    systemNavigationBarColor: Colors.transparent,
+    systemNavigationBarDividerColor: Colors.transparent,
+    systemNavigationBarIconBrightness: dark
+        ? Brightness.light
+        : Brightness.dark,
+    systemStatusBarContrastEnforced: false,
+    systemNavigationBarContrastEnforced: false,
+  );
+}
+
 ThemeData buildControlTheme({
   required Brightness brightness,
   bool pitchBlack = false,
@@ -209,6 +231,9 @@ ThemeData buildControlTheme({
     colorScheme: scheme,
     scaffoldBackgroundColor: scheme.surface,
     textTheme: typography,
+    // App bars set the system bars while they are on screen; they get the same
+    // see-through bars as everywhere else.
+    appBarTheme: AppBarTheme(systemOverlayStyle: systemBarsFor(brightness)),
     extensions: [colors],
     visualDensity: VisualDensity.standard,
     navigationBarTheme: NavigationBarThemeData(

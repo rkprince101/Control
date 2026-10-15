@@ -313,18 +313,108 @@ class DeviceOwnerStatus {
   String get command => 'adb shell dpm set-device-owner $component';
 }
 
+/// One location fix, and what is known about how far to trust it.
+class LocationFix {
+  const LocationFix({
+    required this.reading,
+    this.age = Duration.zero,
+    this.mock = false,
+  });
+
+  factory LocationFix.fromMap(Map<Object?, Object?> map) => LocationFix(
+    reading: GeoReading(
+      point: GeoPoint(
+        (map['latitude']! as num).toDouble(),
+        (map['longitude']! as num).toDouble(),
+      ),
+      accuracyMeters: (map['accuracy'] as num?)?.toDouble() ?? 0,
+    ),
+    age: Duration(milliseconds: (map['ageMillis'] as num?)?.toInt() ?? 0),
+    mock: map['mock'] as bool? ?? false,
+  );
+
+  final GeoReading reading;
+  final Duration age;
+
+  /// From a mock-location app: a position someone typed in, not one measured.
+  final bool mock;
+}
+
+/// What Health Connect can give: workouts, and on newer providers
+/// mindfulness sessions.
+class HealthStatus {
+  const HealthStatus({
+    required this.sdk,
+    required this.workout,
+    required this.mindful,
+    required this.mindfulSupported,
+  });
+
+  factory HealthStatus.fromMap(Map<Object?, Object?> map) => HealthStatus(
+    sdk: HealthSdk.fromName(map['sdk'] as String?),
+    workout: map['workout'] as bool? ?? false,
+    mindful: map['mindful'] as bool? ?? false,
+    mindfulSupported: map['mindfulSupported'] as bool? ?? false,
+  );
+
+  const HealthStatus.unknown()
+    : sdk = HealthSdk.unavailable,
+      workout = false,
+      mindful = false,
+      mindfulSupported = false;
+
+  final HealthSdk sdk;
+
+  /// Allowed to read workouts.
+  final bool workout;
+
+  /// Allowed to read mindfulness sessions.
+  final bool mindful;
+
+  /// This Health Connect knows mindfulness sessions at all.
+  final bool mindfulSupported;
+
+  bool get connected => workout || mindful;
+}
+
+enum HealthSdk {
+  available,
+
+  /// Health Connect missing or too old: Android 13 and below, where it is an
+  /// app from Play.
+  updateRequired,
+  unavailable;
+
+  static HealthSdk fromName(String? name) =>
+      HealthSdk.values.where((sdk) => sdk.name == name).firstOrNull ??
+      HealthSdk.unavailable;
+}
+
 /// Whether a place check-in can be attempted on this device.
 class LocationStatus {
-  const LocationStatus({required this.granted, required this.enabled});
+  const LocationStatus({
+    required this.granted,
+    required this.enabled,
+    this.approximateOnly = false,
+  });
 
   factory LocationStatus.fromMap(Map<Object?, Object?> map) => LocationStatus(
     granted: map['granted'] as bool? ?? false,
     enabled: map['enabled'] as bool? ?? false,
+    approximateOnly: map['approximateOnly'] as bool? ?? false,
   );
 
-  const LocationStatus.unknown() : granted = false, enabled = false;
+  const LocationStatus.unknown()
+    : granted = false,
+      enabled = false,
+      approximateOnly = false;
 
+  /// Precise location. A check-in cannot be proved with less.
   final bool granted;
+
+  /// Android 12 and later: allowed, but only to approximate location, which is
+  /// accurate to a few kilometres and so can never prove a check-in.
+  final bool approximateOnly;
 
   /// Location services switched on at the system level. Granted but disabled is
   /// a common state and needs its own message.

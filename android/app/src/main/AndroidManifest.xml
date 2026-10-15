@@ -1,6 +1,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <!-- Health Connect needs Android 8. The app still installs on 7, where
+         Health Connect reports itself unavailable and is never called. -->
+    <uses-sdk tools:overrideLibrary="androidx.health.connect.client" />
+
     <!-- Screen time and pickups on the Insights screen. Granted from a system
          settings page, not a runtime dialog. -->
     <uses-permission
@@ -31,6 +35,11 @@
     <uses-feature
         android:name="android.hardware.sensor.stepcounter"
         android:required="false" />
+
+    <!-- Workout and Meditate conditions: when sessions recorded by other apps
+         in Health Connect started and ended, today only. -->
+    <uses-permission android:name="android.permission.health.READ_EXERCISE" />
+    <uses-permission android:name="android.permission.health.READ_MINDFULNESS" />
 
     <!-- One foreground fix when the user taps Check in at a place condition.
          Foreground only: no background location, no geofences, nothing tracked
@@ -69,6 +78,29 @@
             </intent-filter>
         </activity>
 
+        <!-- Why Control asks Health Connect for workouts and mindfulness.
+             Health Connect only offers its permission screen to apps that
+             have this page: the intent filter up to Android 13, the alias
+             from Android 14. -->
+        <activity
+            android:name=".insights.HealthRationaleActivity"
+            android:exported="true"
+            android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+            <intent-filter>
+                <action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE" />
+            </intent-filter>
+        </activity>
+        <activity-alias
+            android:name="ViewPermissionUsageActivity"
+            android:exported="true"
+            android:targetActivity=".insights.HealthRationaleActivity"
+            android:permission="android.permission.START_VIEW_PERMISSION_USAGE">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW_PERMISSION_USAGE" />
+                <category android:name="android.intent.category.HEALTH_PERMISSIONS" />
+            </intent-filter>
+        </activity-alias>
+
         <!-- The block screen. Its own task, kept out of recents so the blocked
              app cannot be reached by swiping back to it. -->
         <activity
@@ -79,7 +111,8 @@
             android:taskAffinity=".enforcement.block"
             android:excludeFromRecents="true"
             android:noHistory="true"
-            android:theme="@android:style/Theme.DeviceDefault.NoActionBar.Fullscreen" />
+            android:windowSoftInputMode="adjustResize|stateHidden"
+            android:theme="@android:style/Theme.DeviceDefault.NoActionBar" />
 
         <!-- Fires a habit channel from an NFC tag, QR code, or home-screen
              shortcut. Finishes immediately without showing a screen. -->
@@ -264,6 +297,8 @@
         <intent>
             <action android:name="android.intent.action.MANAGE_PERMISSIONS" />
         </intent>
+        <!-- Health Connect as an app, on Android 13 and below. -->
+        <package android:name="com.google.android.apps.healthdata" />
         <!-- The UPI apps that can take a tip from the Support sheet. -->
         <intent>
             <action android:name="android.intent.action.VIEW" />

@@ -23,7 +23,12 @@ import com.rkprince.control.enforcement.PlanStore
 import com.rkprince.control.enforcement.PlanCodec
 import com.rkprince.control.enforcement.NativeGrantStore
 import com.rkprince.control.enforcement.ShieldHealth
+import com.rkprince.control.enforcement.StepUnlocks
+import com.rkprince.control.thoughts.ThoughtCodec
+import com.rkprince.control.thoughts.ThoughtStatus
+import com.rkprince.control.thoughts.ThoughtStore
 import com.rkprince.control.enforcement.TamperGuard
+import com.rkprince.control.insights.HealthReader
 import com.rkprince.control.insights.InstalledAppsReader
 import com.rkprince.control.insights.AppCategoryResolver
 import com.rkprince.control.insights.LocationReader
@@ -40,6 +45,11 @@ import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import org.json.JSONArray
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.ThreadPoolExecutor
@@ -59,6 +69,11 @@ class ControlBridge(private val context: Context) : MethodChannel.MethodCallHand
     private val categories = AppCategoryResolver(context)
     private val steps = StepsReader(context)
     private val location = LocationReader(context)
+    private val health = HealthReader(context)
+    private val thoughts = ThoughtStore(context)
+
+    /** Health Connect calls are suspending; cancelled when the engine detaches. */
+    private var scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val shortcuts = ShortcutStore(context)
     private val tamperGuard = TamperGuard(context)
     private val summaries = SummaryStore(context)
@@ -80,6 +95,7 @@ class ControlBridge(private val context: Context) : MethodChannel.MethodCallHand
 
     fun attach(messenger: BinaryMessenger, activity: Activity?) {
         detach()
+        scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
         this.activity = activity
         timelineExecutor = ThreadPoolExecutor(
             1, 1, 0L, TimeUnit.MILLISECONDS, ArrayBlockingQueue(4),
@@ -98,6 +114,7 @@ class ControlBridge(private val context: Context) : MethodChannel.MethodCallHand
         channel?.setMethodCallHandler(null)
         channel = null
         activity = null
+        scope.cancel()
     }
 
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
@@ -112,6 +129,41 @@ class ControlBridge(private val context: Context) : MethodChannel.MethodCallHand
                     mapOf("grantedAt" to grant.grantedAt, "expiresAt" to grant.expiresAt)
                 },
             )
+            // Parked thoughts -------------------------------------------------
+            "thoughts" -> result.success(thoughtsWithStatus())
+            "addThought" -> {
+                val text = call.argument<String>("text").orEmpty()
+                result.success(thoughts.add(text)?.let { ThoughtCodec.toJson(it).toString() })
+            }
+            "updateThought" -> {
+                thoughts.update(call.argument<String>("id").orEmpty(), call.argument<String>("text").orEmpty())
+                result.success(null)
+            }
+            "setThoughtDone" -> {
+                thoughts.setDone(call.argument<String>("id").orEmpty(), call.argument<Boolean>("done") ?: true)
+                result.success(null)
+            }
+            "deleteThought" -> {
+                thoughts.delete(call.argument<String>("id").orEmpty())
+                result.success(null)
+            }
+            "restoreThought" -> {
+                val raw = call.argument<String>("json")
+                val thought = raw?.let { runCatching { ThoughtCodec.fromJson(org.json.JSONObject(it)) }.getOrNull() }
+                if (thought != null) thoughts.restore(thought)
+                result.success(thought != null)
+            }
+            "clearDoneThoughts" -> {
+                thoughts.clearDone()
+                result.success(null)
+            }
+            "openThoughtTarget" -> result.success(
+                openThoughtTarget(
+                    call.argument<String>("packageName").orEmpty(),
+                    call.argument<String>("target").orEmpty(),
+                ),
+            )
+
             "shieldHealth" -> result.success(
                 mapOf("lastFallbackAt" to ShieldHealth.lastFallbackAt(context)),
             )
@@ -160,7 +212,7 @@ class ControlBridge(private val context: Context) : MethodChannel.MethodCallHand
                 ),
             )
             "requestStepsPermission" -> {
-                requestStepsPermission()
+                fixPermission(STEPS_PERMISSION, Manifest.permission.ACTIVITY_RECOGNITION)
                 result.success(null)
             }
             "stepsToday" -> steps.readToday { count -> result.success(count) }
@@ -170,10 +222,11 @@ class ControlBridge(private val context: Context) : MethodChannel.MethodCallHand
                 mapOf(
                     "granted" to location.hasPermission(),
                     "enabled" to location.isEnabled(),
+                    "approximateOnly" to location.hasApproximateOnly(),
                 ),
             )
             "requestLocationPermission" -> {
-                requestLocationPermission()
+                fixPermission(LOCATION_PERMISSION, Manifest.permission.ACCESS_FINE_LOCATION)
                 result.success(null)
             }
             "currentLocation" -> location.current { fix ->
@@ -182,12 +235,39 @@ class ControlBridge(private val context: Context) : MethodChannel.MethodCallHand
                         null
                     } else {
                         mapOf(
-                            "latitude" to fix.latitude,
-                            "longitude" to fix.longitude,
-                            "accuracy" to fix.accuracy.toDouble(),
+                            "latitude" to fix.location.latitude,
+                            "longitude" to fix.location.longitude,
+                            "accuracy" to fix.location.accuracy.toDouble(),
+                            "ageMillis" to fix.ageMillis,
+                            "mock" to fix.mock,
                         )
                     },
                 )
+            }
+
+            // Health Connect ---------------------------------------------------
+            "healthStatus" -> scope.launch {
+                result.success(runCatching { health.status() }.getOrElse {
+                    mapOf("sdk" to HealthReader.UNAVAILABLE, "workout" to false,
+                        "mindful" to false, "mindfulSupported" to false)
+                })
+            }
+            "requestHealthPermissions" -> result.success(requestHealthPermissions())
+            "openHealthConnect" -> {
+                result.success(runCatching { startExternal(health.setupIntent()) }.isSuccess)
+            }
+            "healthSessions" -> {
+                val start = call.argument<Number>("startMillis")?.toLong()
+                val end = call.argument<Number>("endMillis")?.toLong()
+                if (start == null || end == null || end < start) {
+                    result.error("bad_args", "startMillis and endMillis are required", null)
+                } else {
+                    scope.launch {
+                        runCatching { health.sessions(start, end) }
+                            .onSuccess { result.success(it) }
+                            .onFailure { result.error("health_unavailable", it.message, null) }
+                    }
+                }
             }
 
             // Shortcut channels -----------------------------------------------
@@ -517,21 +597,100 @@ class ControlBridge(private val context: Context) : MethodChannel.MethodCallHand
     private fun notificationPrefs() =
         context.getSharedPreferences(NOTIFICATION_PREFS, Context.MODE_PRIVATE)
 
-    private fun requestLocationPermission() {
-        activity?.requestPermissions(
-            arrayOf(
-                Manifest.permission.ACCESS_FINE_LOCATION,
-                Manifest.permission.ACCESS_COARSE_LOCATION,
-            ),
-            LOCATION_PERMISSION_REQUEST,
-        )
+    /**
+     * Every parked thought, newest first, with whether its app or site is
+     * still blocked right now and, if so, what the block screen would say.
+     * Worked out here because only the native side knows category membership
+     * and the allowances walking has earned with Flutter asleep.
+     */
+    private fun thoughtsWithStatus(): List<Map<String, Any>> {
+        val list = thoughts.list()
+        if (list.isEmpty()) return emptyList()
+        val now = EnforcementClock.now(context)
+        val plan = StepUnlocks.apply(context, planStore.read(), now)
+        val byCategory = plan.rules?.any { it.categories.isNotEmpty() } == true
+        return list.map { thought ->
+            val tokens = if (byCategory && thought.target.isNotEmpty() && !ThoughtStatus.isSite(thought)) {
+                categories.categories(thought.target)
+            } else emptySet()
+            val blocked = ThoughtStatus.blocked(thought, plan, tokens, now)
+            mapOf(
+                "json" to ThoughtCodec.toJson(thought).toString(),
+                "blockedNow" to blocked,
+                "status" to if (blocked) plan.detailFor(thought.target, tokens, now).status else "",
+            )
+        }
     }
 
-    private fun requestStepsPermission() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
-        activity?.requestPermissions(
-            arrayOf(Manifest.permission.ACTIVITY_RECOGNITION),
-            STEPS_PERMISSION_REQUEST,
+    /** Opens the app a thought was about, or the site in the browser. */
+    private fun openThoughtTarget(packageName: String, target: String): Boolean = runCatching {
+        val intent = if (target.isNotEmpty() && target != packageName) {
+            Intent(Intent.ACTION_VIEW, Uri.parse("https://$target"))
+        } else {
+            context.packageManager.getLaunchIntentForPackage(packageName) ?: return false
+        }
+        startExternal(intent)
+        true
+    }.getOrDefault(false)
+
+    /**
+     * From Android 14 health permissions are runtime permissions, asked for
+     * like any other; before that, Health Connect's own activity asks. Once
+     * Android stops showing the prompt, Health Connect's page for Control's
+     * permissions is the way to grant them.
+     */
+    private fun requestHealthPermissions(): Boolean {
+        val host = activity ?: return false
+        val permissions = health.permissionsToRequest() ?: return false
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            val missing = permissions.filter {
+                context.checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED
+            }
+            if (missing.isEmpty()) return true
+            val prefs = notificationPrefs()
+            val asked = prefs.getBoolean("asked_health", false)
+            if (asked && missing.none { host.shouldShowRequestPermissionRationale(it) }) {
+                return runCatching {
+                    startExternal(health.managePermissionsIntent(context.packageName))
+                }.recoverCatching { startExternal(health.setupIntent()) }.isSuccess
+            }
+            prefs.edit().putBoolean("asked_health", true).apply()
+            host.requestPermissions(missing.toTypedArray(), HEALTH_PERMISSION_REQUEST)
+            return true
+        }
+        val intent = health.permissionIntent() ?: return false
+        return runCatching { host.startActivityForResult(intent, HEALTH_PERMISSION_REQUEST) }.isSuccess
+    }
+
+    /**
+     * Asks for a runtime permission while Android will still show the prompt,
+     * and opens Control's App info once it will not. Android drops the prompt
+     * silently after it has been refused twice, and a button that does nothing
+     * reads as broken; that used to be the Steps and Location rows.
+     */
+    private fun fixPermission(kind: String, permission: String) {
+        if (kind == STEPS_PERMISSION && Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
+        if (context.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED) return
+        val host = activity ?: return
+        val prefs = notificationPrefs()
+        val asked = prefs.getBoolean("asked_$kind", false)
+        if (asked && !host.shouldShowRequestPermissionRationale(permission)) {
+            startExternal(
+                Intent(
+                    Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    Uri.fromParts("package", context.packageName, null),
+                ),
+            )
+            return
+        }
+        prefs.edit().putBoolean("asked_$kind", true).apply()
+        val permissions = if (kind == LOCATION_PERMISSION) {
+            // Both, so a phone set to approximate can be asked to upgrade.
+            arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
+        } else arrayOf(permission)
+        host.requestPermissions(
+            permissions,
+            if (kind == LOCATION_PERMISSION) LOCATION_PERMISSION_REQUEST else STEPS_PERMISSION_REQUEST,
         )
     }
 
@@ -675,6 +834,9 @@ class ControlBridge(private val context: Context) : MethodChannel.MethodCallHand
     private companion object {
         const val CHANNEL = "dev.control/enforcement"
         const val STEPS_PERMISSION_REQUEST = 4801
+        const val HEALTH_PERMISSION_REQUEST = 4805
+        const val STEPS_PERMISSION = "steps"
+        const val LOCATION_PERMISSION = "location"
         const val LOCATION_PERMISSION_REQUEST = 4802
         const val NOTIFICATION_PERMISSION_REQUEST = 4803
         const val NOTIFICATION_PREFS = "notification_access"

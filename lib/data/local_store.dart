@@ -5,6 +5,7 @@ import 'package:control_core/control_core.dart';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
+import 'activity.dart';
 import 'block_codec.dart';
 import 'focus.dart';
 import 'page_lock.dart';
@@ -160,6 +161,33 @@ class LocalStore {
     return _save();
   }
 
+  // Workout and meditation timers --------------------------------------------
+
+  List<ActivitySession> loadActivitySessions() {
+    final raw = _state[_activitySessions];
+    if (raw is! List) return [];
+    return raw
+        .whereType<Map<String, Object?>>()
+        .map(ActivitySession.fromMap)
+        .whereType<ActivitySession>()
+        .toList();
+  }
+
+  /// Only today counts towards a condition; a week is kept for the odd
+  /// session that crosses midnight and for nothing else.
+  Future<void> saveActivitySessions(
+    List<ActivitySession> sessions,
+    DateTime now,
+  ) {
+    final cutoff = now.subtract(const Duration(days: 7));
+    _state[_activitySessions] = [
+      for (final session in sessions)
+        if (session.isRunning || session.startedAt.isAfter(cutoff))
+          session.toMap(),
+    ];
+    return _save();
+  }
+
   // Place check-ins ----------------------------------------------------------
 
   /// Ids checked in on [day]. Stored with the day they belong to, so a check-in
@@ -259,6 +287,7 @@ class LocalStore {
   static const _theme = 'themeChoice';
   static const _waveMotion = 'waveMotion';
   static const _focusSessions = 'focusSessions';
+  static const _activitySessions = 'activitySessions';
   static const _hardMode = 'hardMode';
   static const _checkIns = 'placeCheckIns';
   static const _checkInDay = 'placeCheckInDay';

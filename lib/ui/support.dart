@@ -121,7 +121,7 @@ class _SupportSheetState extends State<SupportSheet> {
       leading: SheetAction('Close', onPressed: () => Navigator.pop(context)),
       child: ListView(
         shrinkWrap: true,
-        padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
+        padding: EdgeInsets.fromLTRB(20, 8, 20, 32 + MediaQuery.paddingOf(context).bottom),
         children: [
           Center(
             child: Container(

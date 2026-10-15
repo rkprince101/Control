@@ -236,6 +236,15 @@ Implemented on Android; not yet tested on a physical device:
   statistics (today, week, sessions, longest, average, streak, completed
   pomodoros, a week chart against the goal, a six-week heatmap, and recent
   sessions) open from the chart button in the same sheet style as the editor.
+- **Park a thought**: the block screen asks what you opened the app for and
+  keeps the answer, so the urge has somewhere to go that is not a way around
+  the block. Thoughts wait on the **Thoughts** page, sorted into *Ready now*
+  (the app or site is open again, with a button to go straight there), *Still
+  blocked* (with what the block screen says) and *Done*. Written on the block
+  screen without starting Flutter, kept in credential-protected storage, and
+  nothing typed is lost if you leave mid-sentence. Thoughts can also be parked
+  from inside Control, edited, ticked off, or swiped away with undo, and the
+  page can be put behind the app-lock PIN.
 - **Hard mode**: the accessibility service attempts to back out of recognized
   Android screens used to uninstall or disable Control. See [Uninstall protection](#uninstall-protection)
   for what it does and does not buy.

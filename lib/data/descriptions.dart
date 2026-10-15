@@ -46,9 +46,11 @@ String describeWeekdays(Set<int> weekdays) {
   return sorted.map((day) => names[day - 1]).join(', ');
 }
 
-String describeWindow(TimeRange range) =>
-    '${formatMinuteOfDay(range.startMinute)}-'
-    '${formatMinuteOfDay(range.endMinute)}';
+/// "6:00-7:30", or "any time" for a window that starts where it ends.
+String describeWindow(TimeRange range) => range.startMinute == range.endMinute
+    ? 'any time'
+    : '${formatMinuteOfDay(range.startMinute)}-'
+          '${formatMinuteOfDay(range.endMinute)}';
 
 String formatMinuteOfDay(int minuteOfDay) {
   final hour = (minuteOfDay ~/ 60) % 24;

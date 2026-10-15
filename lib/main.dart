@@ -2,8 +2,10 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 
 import 'state/control_store.dart';
+import 'ui/control_page.dart';
 import 'ui/block_editor_sheet.dart';
 import 'ui/blocks_page.dart';
 import 'ui/expressive_progress.dart';
@@ -12,9 +14,15 @@ import 'ui/navigation.dart';
 import 'ui/page_lock.dart';
 import 'ui/restricted_settings.dart';
 import 'ui/settings_page.dart';
+import 'ui/thoughts_page.dart';
 import 'ui/theme.dart';
 
 void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+  // Edge to edge on every Android version, not just the 15+ that insist on
+  // it: the app draws under the status and navigation bars, and each page
+  // keeps its own content clear of them.
+  SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   runApp(ControlApp(store: ControlStore()));
 }
 
@@ -41,10 +49,14 @@ class ControlApp extends StatelessWidget {
             ),
             themeMode: choice.themeMode,
             // Above the navigator, so sheets and dialogs follow it too.
-            builder: (context, child) => WaveMotionScope(
-              motion: store.waveMotion,
-              child: child ?? const SizedBox.shrink(),
-            ),
+            builder: (context, child) =>
+                AnnotatedRegion<SystemUiOverlayStyle>(
+                  value: systemBarsFor(Theme.of(context).brightness),
+                  child: WaveMotionScope(
+                    motion: store.waveMotion,
+                    child: child ?? const SizedBox.shrink(),
+                  ),
+                ),
             home: const HomeShell(),
           );
         },
@@ -98,13 +110,15 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   bool _fabExtended = true;
   bool _railExtended = false;
 
-  /// Re-reads steps while the app is in front, so a steps rule's progress
-  /// moves as you walk with Control open, and unlocks without a restart.
+  /// Re-reads steps and check-in windows while the app is in front, so a
+  /// steps rule's progress moves as you walk with Control open, and a Check
+  /// in button appears when its window opens.
   Timer? _liveSteps;
   static const _liveStepsEvery = Duration(seconds: 20);
 
   late final Map<Destination, Widget> _pages = {
     Destination.blocks: const BlocksPage(),
+    Destination.thoughts: const ThoughtsPage(),
     Destination.insights: const InsightsPage(),
     Destination.settings: const SettingsPage(),
   };
@@ -127,7 +141,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   }
 
   void _startLiveSteps() => _liveSteps ??= Timer.periodic(_liveStepsEvery, (_) {
-    if (mounted) StoreScope.read(context).refreshSteps();
+    if (mounted) StoreScope.read(context).refreshLive();
   });
 
   void _stopLiveSteps() {
@@ -206,6 +220,11 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
         label: 'New block',
         onPressed: () => BlockEditorSheet.show(context),
       ),
+      Destination.thoughts => (
+        icon: Icons.edit_note_rounded,
+        label: 'Park a thought',
+        onPressed: () => ThoughtEditorSheet.show(context),
+      ),
       Destination.insights || Destination.settings => null,
     };
   }
@@ -215,7 +234,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     final wide = MediaQuery.sizeOf(context).width >= 840;
     final action = _action;
 
-    final content = NotificationListener<UserScrollNotification>(
+    final pages = NotificationListener<UserScrollNotification>(
       onNotification: _onScroll,
       child: IndexedStack(
         index: Destination.values.indexOf(_destination),
@@ -234,6 +253,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
         ],
       ),
     );
+    final content = Stack(children: [pages, const StatusBarScrim()]);
 
     // As in Gmail, back from any other page returns to the first one before
     // it leaves the app.
@@ -254,20 +274,25 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
                   selected: _destination,
                   onSelect: _selectFromDrawer,
                 ),
-          // The search bar floats over content, so the status bar keeps its own
-          // band of background rather than letting cards slide up under it.
+          // Edge to edge: pages draw under both system bars and keep their
+          // own content clear of them (see ControlPage).
           body: SafeArea(
+            top: false,
             bottom: false,
             child: wide
                 ? Row(
                     children: [
-                      _Rail(
-                        selected: _destination,
-                        extended: _railExtended,
-                        action: action,
-                        onToggle: () =>
-                            setState(() => _railExtended = !_railExtended),
-                        onSelect: _select,
+                      // The rail stays clear of both bars; its background
+                      // still runs under them.
+                      SafeArea(
+                        child: _Rail(
+                          selected: _destination,
+                          extended: _railExtended,
+                          action: action,
+                          onToggle: () =>
+                              setState(() => _railExtended = !_railExtended),
+                          onSelect: _select,
+                        ),
                       ),
                       const VerticalDivider(width: 1),
                       Expanded(child: content),

@@ -54,7 +54,12 @@ final _pageScroll = find
 Future<void> _goTo(WidgetTester tester, String label) async {
   await tester.tap(find.byTooltip('Open navigation drawer').hitTestable());
   await tester.pumpAndSettle();
-  await tester.tap(find.bySemanticsLabel(label));
+  await tester.tap(
+    find.descendant(
+      of: find.byType(Drawer),
+      matching: find.bySemanticsLabel(label),
+    ),
+  );
   await tester.pumpAndSettle();
 }
 
@@ -112,7 +117,7 @@ void main() {
 
     await tester.tap(find.byTooltip('Open navigation drawer').hitTestable());
     await tester.pumpAndSettle();
-    for (final label in ['Blocks', 'Insights', 'Settings']) {
+    for (final label in ['Blocks', 'Thoughts', 'Insights', 'Settings']) {
       expect(find.bySemanticsLabel(label), findsOneWidget);
     }
     for (final removed in ['Habits', 'Todos', 'Notes', 'Money']) {
